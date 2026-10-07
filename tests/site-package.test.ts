@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseSiteConfig, parseSiteManifest } from "../src/site-package";
-import { validateCollections, validatePages, validatePlaces, validateSitePackage } from "../shared/site-validation.mjs";
+import { parseSiteConfig, parseSiteManifest, validateSitePackageIdentity } from "../src/site-package";
+import { validateCollections, validatePages, validatePlaces } from "../shared/site-validation.mjs";
+import { validateSitePackage } from "../scripts/site-package-fs.mjs";
 
 function temporarySite(id = "demo-region"): string {
   const directory = mkdtempSync(path.join(os.tmpdir(), "open-cms-site-"));
@@ -20,13 +21,22 @@ function writeJson(root: string, file: string, value: unknown): void {
   writeFileSync(path.join(root, file), `${JSON.stringify(value)}\n`);
 }
 
-test("Garrett and demo fixtures satisfy the shared v1 contract", () => {
+test("pure parsers validate loaded Garrett and demo config without filesystem context", () => {
   for (const id of ["garrett-county", "demo-region"]) {
     const root = path.resolve("sites", id);
-    const { manifest, site } = validateSitePackage(root);
-    assert.equal(parseSiteManifest(manifest, root).format, 1);
-    assert.equal(parseSiteConfig(site, parseSiteManifest(manifest, root)).id, manifest.id);
+    const manifest = parseSiteManifest(readJson(root, "manifest.json"));
+    const site = parseSiteConfig(readJson(root, "site.json"));
+    assert.equal(manifest.format, 1);
+    assert.equal(validateSitePackageIdentity(site, manifest).id, manifest.id);
+    assert.equal(validateSitePackage(root).manifest.id, manifest.id);
   }
+});
+
+test("application-facing validation imports no Node filesystem or path APIs", () => {
+  const application = readFileSync("src/site-package.ts", "utf8");
+  const pure = readFileSync("shared/site-validation.mjs", "utf8");
+  assert.match(application, /\.\.\/shared\/site-validation\.mjs/);
+  assert.doesNotMatch(`${application}\n${pure}`, /from\s+["']node:(?:fs|path|url)["']/);
 });
 
 test("manifest rejects unsupported format, invalid ids, and malformed semantic versions", () => {
@@ -38,18 +48,26 @@ test("manifest rejects unsupported format, invalid ids, and malformed semantic v
     const root = temporarySite();
     try {
       const manifest = readJson<any>(root, "manifest.json");
-      assert.throws(() => parseSiteManifest(mutation(manifest), root), message, file);
+      assert.throws(() => parseSiteManifest(mutation(manifest)), message, file);
     } finally { rmSync(path.dirname(root), { recursive: true, force: true }); }
   }
 });
 
-test("manifest rejects absolute, traversal, missing and symlink-escaped package paths", (t) => {
+test("Node package loader rejects absolute, traversal, missing, wrong-kind and symlink-escaped paths", (t) => {
   const root = temporarySite();
   t.after(() => rmSync(path.dirname(root), { recursive: true, force: true }));
   const manifest = readJson<any>(root, "manifest.json");
-  assert.throws(() => parseSiteManifest({ ...manifest, places: "/tmp/places.geojson" }, root), /relative path/);
-  assert.throws(() => parseSiteManifest({ ...manifest, places: "../places.geojson" }, root), /parent-directory/);
-  assert.throws(() => parseSiteManifest({ ...manifest, places: "missing/places.geojson" }, root), /Missing package entry/);
+  writeJson(root, "manifest.json", { ...manifest, places: "/tmp/places.geojson" });
+  assert.throws(() => validateSitePackage(root), /safe relative path/);
+  writeJson(root, "manifest.json", { ...manifest, places: "C:/outside.geojson" });
+  assert.throws(() => validateSitePackage(root), /safe relative path/);
+  writeJson(root, "manifest.json", { ...manifest, places: "../places.geojson" });
+  assert.throws(() => validateSitePackage(root), /safe relative path/);
+  writeJson(root, "manifest.json", { ...manifest, places: "missing/places.geojson" });
+  assert.throws(() => validateSitePackage(root), /Missing package entry/);
+  writeJson(root, "manifest.json", { ...manifest, assets: "manifest.json" });
+  assert.throws(() => validateSitePackage(root), /wrong kind/);
+  writeJson(root, "manifest.json", manifest);
 
   const outside = path.join(path.dirname(root), "outside-assets");
   mkdirSync(outside);
@@ -57,7 +75,7 @@ test("manifest rejects absolute, traversal, missing and symlink-escaped package 
   rmSync(assetPath, { recursive: true, force: true });
   try {
     symlinkSync(outside, assetPath, process.platform === "win32" ? "junction" : "dir");
-    assert.throws(() => parseSiteManifest(manifest, root), /Resolved package path 'assets' escapes/);
+    assert.throws(() => validateSitePackage(root), /Resolved package path 'assets' escapes/);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EPERM" || (error as NodeJS.ErrnoException).code === "EACCES") {
       t.skip("The current account cannot create directory symlinks for this test.");
@@ -67,9 +85,9 @@ test("manifest rejects absolute, traversal, missing and symlink-escaped package 
 
 test("site id must match manifest and region fields and bounds must be valid", () => {
   const root = path.resolve("sites/demo-region");
-  const manifest = readJson<any>(root, "manifest.json");
   const site = readJson<any>(root, "site.json");
-  assert.throws(() => parseSiteConfig({ ...site, id: "other-site" }, manifest), /match the manifest/);
+  const manifest = readJson<any>(root, "manifest.json");
+  assert.throws(() => validateSitePackageIdentity({ ...site, id: "other-site" }, manifest), /match the manifest/);
   const invalid = [
     { ...site, name: "  " }, { ...site, locale: "" },
     { ...site, region: { ...site.region, name: "" } },
@@ -79,7 +97,7 @@ test("site id must match manifest and region fields and bounds must be valid", (
     { ...site, region: { ...site.region, bounds: [[1, 0], [0, 1]] } },
     { ...site, region: { ...site.region, bounds: [[0, 2], [1, 1]] } },
   ];
-  for (const value of invalid) assert.throws(() => parseSiteConfig(value, manifest));
+  for (const value of invalid) assert.throws(() => parseSiteConfig(value));
 });
 
 test("places reject duplicate IDs, missing shape, and invalid coordinates", () => {
@@ -98,12 +116,13 @@ test("places reject duplicate IDs, missing shape, and invalid coordinates", () =
 test("collections require unique string content IDs that resolve to Markdown", () => {
   const root = path.resolve("sites/demo-region");
   const content = path.join(root, "content");
+  const contentIds = new Set(readdirSync(content).filter((name) => name.endsWith(".md")).map((name) => path.basename(name, ".md")));
   const collections = readJson<any>(root, "collections.json");
-  assert.equal(validateCollections(collections, content), collections);
-  assert.throws(() => validateCollections({ x: { title: "X", items: ["juniper-overlook", "juniper-overlook"] } }, content), /duplicate item/);
-  assert.throws(() => validateCollections({ x: { title: "X", items: ["missing-guide"] } }, content), /missing Markdown/);
-  assert.throws(() => validateCollections({ x: { title: "X", items: [4] } }, content), /non-empty strings/);
-  assert.throws(() => validateCollections({ x: { title: "X", items: "juniper-overlook" } }, content), /must be an array/);
+  assert.equal(validateCollections(collections, contentIds), collections);
+  assert.throws(() => validateCollections({ x: { title: "X", items: ["juniper-overlook", "juniper-overlook"] } }, contentIds), /duplicate item/);
+  assert.throws(() => validateCollections({ x: { title: "X", items: ["missing-guide"] } }, contentIds), /missing Markdown/);
+  assert.throws(() => validateCollections({ x: { title: "X", items: [4] } }, contentIds), /non-empty strings/);
+  assert.throws(() => validateCollections({ x: { title: "X", items: "juniper-overlook" } }, contentIds), /must be an array/);
 });
 
 test("pages reject unknown collections, malformed section data, and unregistered components", () => {

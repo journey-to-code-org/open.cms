@@ -1,17 +1,9 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 export const PAGE_COMPONENTS = new Set(["hero", "guide-collection", "feature-gallery", "install-prompt"]);
 const MANIFEST_PATHS = ["site", "map", "navigation", "collections", "pages", "content", "places", "trails", "theme", "assets"];
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const nonEmpty = (value) => typeof value === "string" && value.trim().length > 0;
-const pathInside = (root, candidate) => {
-  const relative = path.relative(root, candidate);
-  return relative === "" || (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`));
-};
 
-export function validateManifest(manifest, root) {
+export function validateManifestData(manifest) {
   if (!isRecord(manifest)) throw new Error("Manifest must be an object.");
   if (manifest.format !== 1) throw new Error("Unsupported manifest format; expected format 1.");
   if (typeof manifest.id !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(manifest.id)) throw new Error("Manifest id must be a kebab-case package id.");
@@ -19,34 +11,24 @@ export function validateManifest(manifest, root) {
   if (typeof manifest.version !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(manifest.version)) {
     throw new Error("Manifest version must be a semantic version (for example, 1.0.0).");
   }
-  if (typeof root !== "string" || !path.isAbsolute(root)) throw new Error("Package root must be an absolute path.");
-  const resolvedRoot = path.resolve(root);
-  if (!fs.existsSync(resolvedRoot) || !fs.statSync(resolvedRoot).isDirectory()) throw new Error("Package root must be an existing directory.");
-  const realRoot = fs.realpathSync(resolvedRoot);
-  const resolvedPaths = {};
   for (const key of MANIFEST_PATHS) {
     const value = manifest[key];
-    if (typeof value !== "string" || value.trim() === "" || value.includes("\\") || value.startsWith("/") || /^[A-Za-z]:/.test(value)) {
-      throw new Error(`Package path '${key}' must be a non-empty relative path using forward slashes.`);
+    if (typeof value !== "string" || value.trim() === "" || value.includes("\\") || value.startsWith("/") ||
+        /^[A-Za-z]:/.test(value) || value.split("/").includes("..")) {
+      throw new Error(`Package path '${key}' must be a non-empty safe relative path using forward slashes.`);
     }
-    if (value.split("/").includes("..")) throw new Error(`Package path '${key}' cannot contain parent-directory segments.`);
-    const candidate = path.resolve(resolvedRoot, ...value.split("/"));
-    if (!pathInside(resolvedRoot, candidate)) throw new Error(`Package path '${key}' escapes the package root.`);
-    if (!fs.existsSync(candidate)) throw new Error(`Missing package entry '${key}': ${value}`);
-    if (!pathInside(realRoot, fs.realpathSync(candidate))) throw new Error(`Resolved package path '${key}' escapes the package root.`);
-    const stat = fs.statSync(candidate);
-    if ((key === "content" || key === "assets") ? !stat.isDirectory() : !stat.isFile()) {
-      throw new Error(`Package entry '${key}' has the wrong kind; expected ${(key === "content" || key === "assets") ? "a directory" : "a file"}.`);
-    }
-    resolvedPaths[key] = candidate;
   }
-  return { manifest, root: resolvedRoot, paths: resolvedPaths };
+  return manifest;
 }
 
-export function validateSiteConfig(site, manifest) {
+export function validateSiteIdentity(site, manifest) {
+  if (!isRecord(site) || !isRecord(manifest) || site.id !== manifest.id) throw new Error("Site id must match the manifest id.");
+  return site;
+}
+
+export function validateSiteConfig(site) {
   if (!isRecord(site)) throw new Error("Site configuration must be an object.");
-  if (!nonEmpty(site.id)) throw new Error("Site id must not be empty.");
-  if (site.id !== manifest.id) throw new Error("Site id must match the manifest id.");
+  if (!nonEmpty(site.id) || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(site.id)) throw new Error("Site id must be a kebab-case package id.");
   if (!nonEmpty(site.name)) throw new Error("Site name must not be empty.");
   if (!nonEmpty(site.description)) throw new Error("Site description must not be empty.");
   if (!nonEmpty(site.locale)) throw new Error("Site locale must not be empty.");
@@ -77,8 +59,7 @@ export function validatePlaces(places) {
   const ids = new Set();
   for (let index = 0; index < places.features.length; index++) {
     const feature = places.features[index];
-    if (!isRecord(feature)) throw new Error(`Place feature ${index} must be an object.`);
-    if (feature.type !== "Feature") throw new Error(`Place feature ${index} must use GeoJSON type Feature.`);
+    if (!isRecord(feature) || feature.type !== "Feature") throw new Error(`Place feature ${index} must be a GeoJSON Feature object.`);
     const id = feature.id;
     if (!(nonEmpty(id) || (typeof id === "number" && Number.isFinite(id)))) throw new Error(`Place feature ${index} requires a string or finite numeric id.`);
     if (ids.has(String(id))) throw new Error(`Duplicate place id '${id}'.`);
@@ -98,9 +79,9 @@ export function validatePlaces(places) {
   return places;
 }
 
-export function validateCollections(collections, contentDirectory) {
+export function validateCollections(collections, contentIds) {
   if (!isRecord(collections)) throw new Error("Collections must be an object keyed by collection id.");
-  const articles = new Set(fs.readdirSync(contentDirectory).filter((name) => name.endsWith(".md")).map((name) => path.basename(name, ".md")));
+  const available = contentIds instanceof Set ? contentIds : new Set(contentIds || []);
   for (const [id, collection] of Object.entries(collections)) {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id) || !isRecord(collection)) throw new Error(`Collection '${id}' must be an object with a valid kebab-case id.`);
     if (!nonEmpty(collection.title)) throw new Error(`Collection '${id}' requires a non-empty title.`);
@@ -111,13 +92,14 @@ export function validateCollections(collections, contentDirectory) {
       if (!nonEmpty(item)) throw new Error(`Collection '${id}' item ids must be non-empty strings.`);
       if (seen.has(item)) throw new Error(`Collection '${id}' contains duplicate item '${item}'.`);
       seen.add(item);
-      if (!articles.has(item)) throw new Error(`Collection '${id}' references missing Markdown content '${item}'.`);
+      if (!available.has(item)) throw new Error(`Collection '${id}' references missing Markdown content '${item}'.`);
     }
   }
   return collections;
 }
 
 export function validatePages(pages, collections) {
+  if (!isRecord(collections)) throw new Error("Page validation requires a validated collections object.");
   if (!isRecord(pages) || Object.keys(pages).length === 0) throw new Error("Pages must be a non-empty object keyed by page id.");
   for (const [id, page] of Object.entries(pages)) {
     if (!isRecord(page) || !nonEmpty(page.route) || !page.route.startsWith("/")) throw new Error(`Page '${id}' must have an absolute route.`);
@@ -134,21 +116,4 @@ export function validatePages(pages, collections) {
     }
   }
   return pages;
-}
-
-export function validateSitePackage(packageRoot) {
-  const root = path.resolve(packageRoot);
-  const manifestPath = path.join(root, "manifest.json");
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8").replace(/^\uFEFF/, ""));
-  const resolved = validateManifest(manifest, root);
-  const read = (key) => JSON.parse(fs.readFileSync(resolved.paths[key], "utf8").replace(/^\uFEFF/, ""));
-  const site = validateSiteConfig(read("site"), manifest);
-  validatePlaces(read("places"));
-  const collections = validateCollections(read("collections"), resolved.paths.content);
-  validatePages(read("pages"), collections);
-  return { manifest, site };
-}
-
-export function packageRootFromModule(moduleUrl) {
-  return path.dirname(fileURLToPath(moduleUrl));
 }

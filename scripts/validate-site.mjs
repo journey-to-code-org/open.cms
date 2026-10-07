@@ -1,5 +1,5 @@
 import path from "node:path";
-import { validateSitePackage } from "../shared/site-validation.mjs";
+import { validateSitePackage } from "./site-package-fs.mjs";
 
 const siteDirectory = path.resolve(process.argv[2] || "sites/garrett-county");
 try {

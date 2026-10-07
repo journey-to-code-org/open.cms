@@ -35,6 +35,7 @@ Requirements: Node.js LTS with npm, Rust/Cargo, the `wasm32-unknown-unknown` tar
 
 ```sh
 rustup target add wasm32-unknown-unknown
+cargo install wasm-pack --locked
 npm ci
 npm test
 npm run typecheck

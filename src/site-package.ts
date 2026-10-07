@@ -1,4 +1,4 @@
-import { validateManifest, validateSiteConfig } from "../shared/site-validation.mjs";
+import { validateManifestData, validateSiteConfig, validateSiteIdentity } from "../shared/site-validation.mjs";
 
 export type Bounds = [[number, number], [number, number]];
 
@@ -24,10 +24,14 @@ export interface SiteManifest {
   content: string; places: string; trails: string; theme: string; assets: string;
 }
 
-export function parseSiteManifest(value: unknown, packageRoot: string): SiteManifest {
-  return validateManifest(value, packageRoot).manifest as unknown as SiteManifest;
+export function parseSiteManifest(value: unknown): SiteManifest {
+  return validateManifestData(value) as unknown as SiteManifest;
 }
 
-export function parseSiteConfig(value: unknown, manifest: SiteManifest): SiteConfig {
-  return validateSiteConfig(value, manifest as unknown as Record<string, unknown>) as SiteConfig;
+export function parseSiteConfig(value: unknown): SiteConfig {
+  return validateSiteConfig(value) as SiteConfig;
+}
+
+export function validateSitePackageIdentity(site: SiteConfig, manifest: SiteManifest): SiteConfig {
+  return validateSiteIdentity(site, manifest) as SiteConfig;
 }
