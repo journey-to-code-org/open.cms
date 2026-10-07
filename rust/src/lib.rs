@@ -159,6 +159,25 @@ pub fn analyze_gpx(xml: &str) -> Result<String, JsValue> {
     serde_json::to_string(&result).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// Validates west/south/east/north regional bounds before any geographic operation.
+pub fn valid_bounds(west: f64, south: f64, east: f64, north: f64) -> bool {
+    [west, south, east, north].iter().all(|value| value.is_finite()) &&
+        west >= -180.0 && east <= 180.0 && south >= -90.0 && north <= 90.0 &&
+        west < east && south < north
+}
+
+#[wasm_bindgen]
+pub fn geo_validate_bounds(west: f64, south: f64, east: f64, north: f64) -> bool {
+    valid_bounds(west, south, east, north)
+}
+
+#[wasm_bindgen]
+pub fn geo_contains_point(longitude: f64, latitude: f64,
+    west: f64, south: f64, east: f64, north: f64) -> bool {
+    valid_bounds(west, south, east, north) && longitude.is_finite() && latitude.is_finite() &&
+        longitude >= west && longitude <= east && latitude >= south && latitude <= north
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +254,14 @@ mod tests {
             r#"<rtept lat="0" lon="0"/>"#.repeat(MAX_POINTS + 1)
         );
         assert!(analyze(&xml).unwrap_err().contains("point limit"));
+    }
+
+    #[test]
+    fn validates_regions_and_contains_points() {
+        assert!(valid_bounds(-79.5, 39.2, -79.0, 39.8));
+        assert!(!valid_bounds(-79.0, 39.2, -79.5, 39.8));
+        assert!(!valid_bounds(-181.0, 39.2, -79.0, 39.8));
+        assert!(geo_contains_point(-79.25, 39.5, -79.5, 39.2, -79.0, 39.8));
+        assert!(!geo_contains_point(-80.0, 39.5, -79.5, 39.2, -79.0, 39.8));
     }
 }

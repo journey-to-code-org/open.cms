@@ -1,0 +1,1 @@
+{"home":{"route":"/","sections":[{"component":"hero","props":{"title":"Garrett County Adventures"}},{"component":"guide-collection","props":{"collection":"trip-planning"}},{"component":"guide-collection","props":{"collection":"local-discovery"}}]}}

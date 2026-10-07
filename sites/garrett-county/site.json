@@ -1,0 +1,47 @@
+{
+  "id": "garrett-county-adventures",
+  "name": "Garrett County Adventures",
+  "shortName": "GC Adventures",
+  "description": "Local guides and outdoor discovery for Garrett County, Maryland.",
+  "canonicalUrl": "https://garrettcountyadventures.com",
+  "locale": "en-US",
+  "publisher": {
+    "name": "Garrett County Adventures"
+  },
+  "region": {
+    "name": "Garrett County",
+    "administrativeArea": "Maryland",
+    "country": "US",
+    "bounds": [
+      [
+        -79.48696767001076,
+        39.202068911240104
+      ],
+      [
+        -79.08637004392415,
+        39.722221540464716
+      ]
+    ]
+  },
+  "seo": {
+    "title": "Garrett County Adventures",
+    "description": "Local guides to places and outdoor adventures."
+  },
+  "pwa": {
+    "name": "Garrett County Adventures",
+    "shortName": "GC Adventures",
+    "description": "Local travel guides and offline outing tools.",
+    "themeColor": "#203a31",
+    "backgroundColor": "#f3f1e8",
+    "icons": [
+      "/icons/icon-192.png",
+      "/icons/icon-512.png"
+    ]
+  },
+  "theme": {
+    "accent": "#c4973b",
+    "background": "#f3f1e8",
+    "text": "#203a31",
+    "fontFamily": "system-ui, sans-serif"
+  }
+}

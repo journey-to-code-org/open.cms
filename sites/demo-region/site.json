@@ -1,0 +1,44 @@
+{
+  "id": "demo-region",
+  "name": "Pine Hollow Field Guide",
+  "shortName": "Pine Hollow",
+  "description": "A fictional guide to the Pine Hollow region.",
+  "canonicalUrl": "https://pine-hollow.example",
+  "locale": "en-US",
+  "publisher": {
+    "name": "Pine Hollow Community"
+  },
+  "region": {
+    "name": "Pine Hollow",
+    "administrativeArea": "Example State",
+    "country": "US",
+    "bounds": [
+      [
+        -72.4,
+        41.8
+      ],
+      [
+        -71.8,
+        42.3
+      ]
+    ]
+  },
+  "seo": {
+    "title": "Pine Hollow Field Guide",
+    "description": "Explore fictional places, trails, and stories around Pine Hollow."
+  },
+  "pwa": {
+    "name": "Pine Hollow Field Guide",
+    "shortName": "Pine Hollow",
+    "description": "A fictional regional field guide.",
+    "themeColor": "#315c49",
+    "backgroundColor": "#f5f2e8",
+    "icons": []
+  },
+  "theme": {
+    "accent": "#df8952",
+    "background": "#f5f2e8",
+    "text": "#263c32",
+    "fontFamily": "Georgia, serif"
+  }
+}

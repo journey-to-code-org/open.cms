@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "id": "demo-region",
+  "name": "Pine Hollow Field Guide",
+  "version": "1.0.0",
+  "site": "./site.json",
+  "map": "./map.json",
+  "navigation": "./navigation.json",
+  "collections": "./collections.json",
+  "pages": "./pages.json",
+  "content": "./content",
+  "places": "./data/places.geojson",
+  "trails": "./data/hikes.json",
+  "theme": "./theme/theme.json",
+  "assets": "./assets"
+}
