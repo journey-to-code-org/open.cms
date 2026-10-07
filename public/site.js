@@ -1,5 +1,6 @@
 (function () {
   const root = document.documentElement;
+  const siteName = document.querySelector('meta[name="application-name"]')?.content || document.title;
   if (document.getElementById("workspace")) document.getElementById("workspace").id = "adventure-map";
   document.querySelectorAll('.skip-link[href="#workspace"]').forEach((link) => link.setAttribute("href", "#adventure-map"));
   const oldExplorerHeading = document.querySelector("#explore-panel > h1");
@@ -71,7 +72,7 @@
     const message = isMac
       ? "Your browser has not opened an install prompt. In Safari, choose File > Add to Dock; in Chrome or Edge, use the Install app option in the address bar or menu."
       : isWindows
-        ? "Your browser has not opened an install prompt. In Chrome or Edge, use the Install app icon in the address bar or choose Install Garrett County Adventures from the browser menu."
+        ? `Your browser has not opened an install prompt. In Chrome or Edge, use the Install app icon in the address bar or choose Install ${siteName} from the browser menu.`
         : "Your browser has not opened an install prompt. Open the browser menu and choose Install app or Add to Home Screen.";
     sayInstallStatus(message);
   }
@@ -97,13 +98,13 @@
       await installPrompt.prompt();
       const choice = await installPrompt.userChoice;
       if (choice.outcome === "accepted") {
-        sayInstallStatus("Thanks for installing Garrett County Adventures.");
+        sayInstallStatus(`Thanks for installing ${siteName}.`);
         if (installButton) installButton.hidden = true;
       } else {
         sayInstallStatus("No problem. You can install it later from your browser menu.");
       }
     } catch {
-      sayInstallStatus("Use your browser menu to install Garrett County Adventures.");
+      sayInstallStatus(`Use your browser menu to install ${siteName}.`);
     } finally {
       installPrompt = null;
     }

@@ -4,8 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseSiteConfig, parseSiteManifest, validateSitePackageIdentity } from "../src/site-package";
-import { validateCollections, validatePages, validatePlaces } from "../shared/site-validation.mjs";
-import { validateSitePackage } from "../scripts/site-package-fs.mjs";
+import { validateCollections, validateNavigation, validatePages, validatePlaces } from "../shared/site-validation.mjs";
+import { loadSitePackage, validateSitePackage } from "../scripts/site-package-fs.mjs";
+import { buildSite } from "../scripts/content-site.js";
+import { activeSiteFromArgs } from "../scripts/active-site.mjs";
 
 function temporarySite(id = "demo-region"): string {
   const directory = mkdtempSync(path.join(os.tmpdir(), "open-cms-site-"));
@@ -30,6 +32,43 @@ test("pure parsers validate loaded Garrett and demo config without filesystem co
     assert.equal(validateSitePackageIdentity(site, manifest).id, manifest.id);
     assert.equal(validateSitePackage(root).manifest.id, manifest.id);
   }
+});
+
+test("loaded runtime normalizes both packages and drives static identity and content", () => {
+  const garrett = loadSitePackage(path.resolve("sites/garrett-county"));
+  const demo = loadSitePackage(path.resolve("sites/demo-region"));
+  assert.equal(garrett.places.length, 16);
+  assert.equal(garrett.places[0].name, "Swallow Falls State Park");
+  assert.ok(Array.isArray(garrett.places[0].activities));
+  assert.equal(demo.places.length, 3);
+  assert.equal(demo.places[0].name, "Juniper Overlook");
+  assert.equal(demo.trails.hikes.length, 0);
+  assert.equal(demo.paths.root, path.resolve("sites/demo-region"));
+  const output = buildSite(demo);
+  assert.match(output.homeHtml, /Pine Hollow Field Guide/);
+  assert.match(output.homeHtml, /juniper-overlook\.html/);
+  assert.match(output.pages.find((page: { name: string }) => page.name === "sitemap.xml").source, /pine-hollow\.example/);
+  assert.ok(output.pages.some((page: { name: string }) => page.name === "fern-creek.html"));
+  assert.doesNotMatch(output.homeHtml, /Garrett|Deep Creek|Maryland/);
+  const untrusted = { ...demo, content: [{ ...demo.content[0], body: "<script>alert(1)</script><p onclick=\"run()\">Safe text</p><a href=\"javascript:alert(2)\">Bad link</a>" }] };
+  const untrustedPage = buildSite(untrusted).pages.find((page: { name: string }) => page.name === `${demo.content[0].id}.html`).source;
+  assert.doesNotMatch(untrustedPage, /<script>alert|onclick=|href="javascript:/);
+  assert.match(untrustedPage, /Safe text/);
+});
+
+test("active-site arguments accept package paths, default to demo, and reject missing or escaping paths", () => {
+  assert.equal(activeSiteFromArgs([]), path.resolve("sites/demo-region"));
+  assert.equal(activeSiteFromArgs(["--site", "./sites/garrett-county"]), path.resolve("sites/garrett-county"));
+  assert.equal(activeSiteFromArgs(["--site=sites/demo-region"]), path.resolve("sites/demo-region"));
+  assert.equal(activeSiteFromArgs(["./sites/garrett-county"]), path.resolve("sites/garrett-county"));
+  assert.throws(() => activeSiteFromArgs(["--site"]), /requires a package directory/);
+  assert.throws(() => activeSiteFromArgs(["--site", "../outside"]), /stay inside this repository/);
+});
+
+test("navigation rejects executable and protocol-relative links", () => {
+  assert.throws(() => validateNavigation({ items: [{ label: "Unsafe", href: "javascript:alert(1)" }] }), /safe link/);
+  assert.throws(() => validateNavigation({ items: [{ label: "External", href: "//example.com" }] }), /safe link/);
+  assert.equal(validateNavigation({ items: [{ label: "Guide", href: "/guide.html" }] }).items.length, 1);
 });
 
 test("application-facing validation imports no Node filesystem or path APIs", () => {

@@ -32,6 +32,9 @@ export function validateSiteConfig(site) {
   if (!nonEmpty(site.name)) throw new Error("Site name must not be empty.");
   if (!nonEmpty(site.description)) throw new Error("Site description must not be empty.");
   if (!nonEmpty(site.locale)) throw new Error("Site locale must not be empty.");
+  if (site.canonicalUrl !== undefined && (typeof site.canonicalUrl !== "string" || !/^https?:\/\/[^\s<>"']+$/i.test(site.canonicalUrl))) {
+    throw new Error("Canonical URL must be an HTTP or HTTPS URL.");
+  }
   if (!isRecord(site.region) || !nonEmpty(site.region.name)) throw new Error("Region name must not be empty.");
   const bounds = site.region.bounds;
   if (!Array.isArray(bounds) || bounds.length !== 2 || !bounds.every((pair) =>
@@ -44,12 +47,27 @@ export function validateSiteConfig(site) {
   }
   if (!isRecord(site.seo) || !nonEmpty(site.seo.title) || !nonEmpty(site.seo.description)) throw new Error("SEO title and description must not be empty.");
   if (!isRecord(site.pwa) || !nonEmpty(site.pwa.name) || !nonEmpty(site.pwa.shortName) || !nonEmpty(site.pwa.description) ||
-      !nonEmpty(site.pwa.themeColor) || !nonEmpty(site.pwa.backgroundColor) || !Array.isArray(site.pwa.icons) ||
-      !site.pwa.icons.every(nonEmpty)) throw new Error("PWA configuration requires identity, colors, and a string icon list.");
-  if (!isRecord(site.theme) || !nonEmpty(site.theme.accent) || !nonEmpty(site.theme.background) || !nonEmpty(site.theme.text)) {
+      !/^#[0-9a-f]{6}$/i.test(site.pwa.themeColor) || !/^#[0-9a-f]{6}$/i.test(site.pwa.backgroundColor) || !Array.isArray(site.pwa.icons) ||
+      !site.pwa.icons.every((icon) => nonEmpty(icon) && /^(?:\/(?!\/)|\.\/)[^\\\s<>:"|?*]+$/i.test(icon) && !icon.split("/").includes(".."))) {
+    throw new Error("PWA configuration requires identity, hex colors, and safe package-relative icon paths.");
+  }
+  if (!isRecord(site.theme) || ![site.theme.accent, site.theme.background, site.theme.text].every((color) =>
+    typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) ||
+      (site.theme.fontFamily !== undefined && (typeof site.theme.fontFamily !== "string" || !/^[\w\s,"'-]{1,120}$/.test(site.theme.fontFamily)))) {
     throw new Error("Theme configuration requires accent, background, and text values.");
   }
   return site;
+}
+
+export function validateNavigation(navigation) {
+  if (!isRecord(navigation) || !Array.isArray(navigation.items)) throw new Error("Navigation must contain an items array.");
+  for (const [index, item] of navigation.items.entries()) {
+    if (!isRecord(item) || !nonEmpty(item.label) || typeof item.href !== "string" ||
+        !/^(?:https?:\/\/|mailto:|\/(?!\/)|#|\.\/)(?!.*[\\\s<>"'])[^\u0000-\u001f]*$/i.test(item.href)) {
+      throw new Error(`Navigation item ${index + 1} requires a label and a safe link.`);
+    }
+  }
+  return navigation;
 }
 
 export function validatePlaces(places) {
@@ -102,7 +120,9 @@ export function validatePages(pages, collections) {
   if (!isRecord(collections)) throw new Error("Page validation requires a validated collections object.");
   if (!isRecord(pages) || Object.keys(pages).length === 0) throw new Error("Pages must be a non-empty object keyed by page id.");
   for (const [id, page] of Object.entries(pages)) {
-    if (!isRecord(page) || !nonEmpty(page.route) || !page.route.startsWith("/")) throw new Error(`Page '${id}' must have an absolute route.`);
+    if (!isRecord(page) || !nonEmpty(page.route) || !page.route.startsWith("/") || page.route.includes("\\") ||
+        /[?#\s<>"']/.test(page.route) || page.route.split("/").some((part) => part === "." || part === "..") ||
+        !/^\/[a-z0-9._/-]*$/i.test(page.route)) throw new Error(`Page '${id}' must have a safe absolute route.`);
     if (!Array.isArray(page.sections)) throw new Error(`Page '${id}' sections must be an array.`);
     for (const [index, section] of page.sections.entries()) {
       if (!isRecord(section) || typeof section.component !== "string" || !PAGE_COMPONENTS.has(section.component)) {

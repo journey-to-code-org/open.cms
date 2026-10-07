@@ -1,10 +1,9 @@
 {
   "name": "open-cms",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A place-based CMS and static publishing engine for regional guides and discovery sites.",
   "scripts": {
-    "build": "npm run build:wasm && npm run typecheck && vite build",
-    "build:content": "node scripts/build-content.js",
+    "build": "node scripts/build.js",
     "validate:site": "node scripts/validate-site.mjs",
     "build:wasm": "wasm-pack build rust --target web --out-dir pkg",
     "typecheck": "tsc --noEmit",

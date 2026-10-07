@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { loadSitePackage } from "./scripts/site-package-fs.mjs";
 import { defineConfig, loadEnv } from "vite";
 
 const require = createRequire(import.meta.url);
@@ -36,16 +37,35 @@ function validateMapboxToken(token) {
   return token;
 }
 
-function sitePlugin(command, environment) {
-  let site;
+function pwaManifest(site) {
   return {
-    name: "garrett-county-site",
+    name: site.config.pwa.name, short_name: site.config.pwa.shortName,
+    description: site.config.pwa.description, start_url: "./", display: "standalone",
+    background_color: site.config.pwa.backgroundColor, theme_color: site.config.pwa.themeColor,
+    icons: site.config.pwa.icons.map((src) => ({ src: src.startsWith("/") ? `.${src}` : src, sizes: src.includes("192") ? "192x192" : "512x512", type: "image/png" })),
+  };
+}
+
+function sitePlugin(command, environment, loadedSite) {
+  let generated;
+  const getGenerated = () => generated ||= buildSite(loadedSite);
+  return {
+    name: "open-cms-site",
+    resolveId(id) { if (id === "virtual:open-cms-site") return "\0virtual:open-cms-site"; },
+    load(id) {
+      if (id !== "\0virtual:open-cms-site") return;
+      return `export default ${JSON.stringify({
+        manifest: loadedSite.manifest, config: loadedSite.config, navigation: loadedSite.navigation,
+        pages: loadedSite.pages, collections: loadedSite.collections, places: loadedSite.places,
+        trails: loadedSite.trails, map: loadedSite.map, theme: loadedSite.theme,
+        bounds: loadedSite.config.region.bounds,
+      })};`;
+    },
     transformIndexHtml(html, context) {
-      site ||= buildSite();
-      if (context.path === "/" || context.path.endsWith("index.html")) {
-        return html.replace("__PLANNING_GUIDES__", site.planningCards)
-          .replace("__LOCAL_GUIDES__", site.localCards);
-      }
+      const site = getGenerated();
+      const devHtml = (value) => command === "serve" ? value.replaceAll("./site.css", "./src/static-site.scss") : value;
+      if (context.path === "/" || context.path.endsWith("index.html")) return devHtml(site.homeHtml);
+      if (context.path.endsWith("explore.html")) return devHtml(site.exploreHtml);
       return html;
     },
     configureServer(server) {
@@ -65,6 +85,16 @@ self.addEventListener("activate", event => event.waitUntil((async () => {
 })()));`);
           return;
         }
+        if (pathname === "/site.js") {
+          response.setHeader("Content-Type", "text/javascript; charset=utf-8");
+          response.end(fs.readFileSync(path.join(ROOT, "public", "site.js"), "utf8"));
+          return;
+        }
+        if (pathname === "/manifest.webmanifest") {
+          response.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
+          response.end(JSON.stringify(pwaManifest(loadedSite), null, 2));
+          return;
+        }
         if (pathname === "/map-config.json") {
           try {
             const token = getMapboxToken(environment);
@@ -78,20 +108,27 @@ self.addEventListener("activate", event => event.waitUntil((async () => {
             return;
           }
         }
-        site ||= buildSite();
-        const page = site.pages.find((entry) => `/${entry.name}` === pathname);
+        const site = getGenerated();
+        const page = site.pages.find((entry) => (entry.route || `/${entry.name}`) === pathname);
         if (!page) return next();
         response.setHeader("Content-Type", page.name.endsWith(".xml") ? "application/xml" :
           page.name.endsWith(".txt") ? "text/plain; charset=utf-8" : "text/html; charset=utf-8");
-        response.end(page.source.replaceAll("./site.css", "./src/site.scss"));
+        response.end(page.source.replaceAll("./site.css", "./src/static-site.scss"));
       });
     },
     closeBundle() {
       if (command !== "build") return;
-      site ||= buildSite();
-      for (const page of site.pages) fs.writeFileSync(path.join(DIST, page.name), page.source);
+      const site = getGenerated();
+      for (const page of site.pages) {
+        const destination = path.join(DIST, page.name);
+        fs.mkdirSync(path.dirname(destination), { recursive: true });
+        fs.writeFileSync(destination, page.source);
+      }
       fs.writeFileSync(path.join(DIST, "site.css"),
-        sass.compile(path.join(ROOT, "src", "site.scss"), { style: "compressed" }).css);
+        sass.compile(path.join(ROOT, "src", "static-site.scss"), { style: "compressed" }).css);
+      fs.appendFileSync(path.join(DIST, "site.css"), `\n:root{--cms-accent:${loadedSite.theme.accent};--page:${loadedSite.theme.background};--ink:${loadedSite.theme.text};--leaf:${loadedSite.theme.accent};--gold:${loadedSite.theme.accent};${loadedSite.theme.fontFamily ? `font-family:${loadedSite.theme.fontFamily};` : ""}}`);
+      fs.copyFileSync(path.join(ROOT, "public", "site.js"), path.join(DIST, "site.js"));
+      fs.writeFileSync(path.join(DIST, "manifest.webmanifest"), JSON.stringify(pwaManifest(loadedSite), null, 2));
 
       const outputConfig = path.join(DIST, "map-config.json");
       const token = getMapboxToken(environment);
@@ -104,12 +141,23 @@ self.addEventListener("activate", event => event.waitUntil((async () => {
 
       const assets = walkFiles(DIST).filter((name) => name !== "service-worker.js" &&
         name !== "map-config.json" && !name.endsWith(".map")).sort();
+      const viteAssets = path.join(DIST, "assets");
+      const appChunk = fs.readdirSync(viteAssets).find((name) => /^explore-.*\.js$/.test(name));
+      const appStyles = fs.readdirSync(viteAssets).filter((name) => /^explore-.*\.css$/.test(name));
+      if (!appChunk) throw new Error("Vite did not emit the explorer application entry.");
+      const explorePath = path.join(DIST, "explore.html");
+      let exploreHtml = fs.readFileSync(explorePath, "utf8");
+      const appStylesheets = appStyles.map((name) => `<link rel="stylesheet" href="./assets/${name}">`).join("");
+      exploreHtml = exploreHtml.replace("</head>", `${appStylesheets}</head>`)
+        .replace('<script type="module" src="./src/app.ts"></script>', `<script type="module" src="./assets/${appChunk}"></script>`);
+      fs.writeFileSync(explorePath, exploreHtml);
       const hash = crypto.createHash("sha256");
       for (const name of assets) {
         hash.update(name);
         hash.update(fs.readFileSync(path.join(DIST, name)));
       }
       const worker = fs.readFileSync(path.join(ROOT, "src", "service-worker.js"), "utf8")
+        .replaceAll("__SITE_ID__", loadedSite.manifest.id)
         .replace("__CACHE_VERSION__", hash.digest("hex").slice(0, 16))
         .replace("__PRECACHE_ASSETS__", JSON.stringify(assets.map((name) => `./${name}`)));
       fs.writeFileSync(path.join(DIST, "service-worker.js"), worker);
@@ -119,10 +167,15 @@ self.addEventListener("activate", event => event.waitUntil((async () => {
 
 export default defineConfig(({ command, mode }) => {
   const environment = { ...loadEnv(mode, ROOT, ""), ...process.env };
+  const selectedSite = process.env.OPEN_CMS_SITE || path.join(ROOT, "sites", "demo-region");
+  const loadedSite = loadSitePackage(selectedSite);
   return ({
-  publicDir: "public",
-  plugins: [sitePlugin(command, environment)],
-  cacheDir: process.env.CHINGU_VITE_CACHE_DIR || undefined,
+  publicDir: loadedSite.paths.assets,
+  plugins: [sitePlugin(command, environment, loadedSite)],
+  cacheDir: process.env.OPEN_CMS_VITE_CACHE_DIR || undefined,
+  define: {
+    "import.meta.env.OPEN_CMS_THEME": JSON.stringify(loadedSite.theme),
+  },
   server: { host: "localhost", port: 3000, strictPort: true },
   worker: { format: "es" },
   build: {

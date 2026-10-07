@@ -1,20 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { places, filterPlaces, estimateMinutes, formatDuration, type Analysis } from "../src/domain";
+import { filterPlaces, estimateMinutes, formatDuration, type Analysis, type Place } from "../src/domain";
+
+const places: Place[] = [
+  { id: "falls", name: "Swallow Falls", description: "A waterfall trail", activities: ["Hiking", "Sightseeing"], coordinates: [-79.2, 39.5] },
+  { id: "new-germany", name: "New Germany State Park", description: "A quiet lake", activities: [], coordinates: [-79.1, 39.4] },
+];
 
 test("search is case-insensitive, matches metadata, and preserves identities", () => {
   const before = JSON.stringify(places);
-  assert.equal(filterPlaces(places, " SWALLOW ", "")[0].name, "Swallow Falls State Park");
+  assert.equal(filterPlaces(places, " SWALLOW ", "")[0].name, "Swallow Falls");
   assert.ok(filterPlaces(places, "waterfall", "").length);
   assert.equal(filterPlaces(places, "no-match-123", "").length, 0);
-  assert.equal(filterPlaces(places, "", "").length, 16);
+  assert.equal(filterPlaces(places, "", "").length, 2);
   assert.equal(JSON.stringify(places), before);
   assert.equal(new Set(places.map((place) => place.id)).size, places.length);
 });
 
 test("activity and text filters combine; missing activities stay unknown", () => {
-  assert.ok(filterPlaces(places, "", "Camping").every((place) => place.activities.includes("Camping")));
-  assert.equal(filterPlaces(places, "Hoye", "Camping").length, 0);
+  assert.ok(filterPlaces(places, "", "Hiking").every((place) => place.activities.includes("Hiking")));
+  assert.equal(filterPlaces(places, "Swallow", "Camping").length, 0);
   assert.deepEqual(places.find((place) => place.name === "New Germany State Park")?.activities, []);
 });
 

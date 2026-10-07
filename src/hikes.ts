@@ -26,7 +26,7 @@ export const OVERPASS_SERVERS = [
   { label: "Overpass Kumi (alternate)", url: "https://overpass.kumi.systems/api/interpreter" },
 ];
 // Fixed regional bounds avoid sending a visitor's position or unbounded map queries.
-export const HIKE_QUERY = `[out:json][timeout:25][bbox:${REGION_BBOX}];
+export const hikeQuery = (bounds: Bounds) => `[out:json][timeout:25][bbox:${regionBbox(bounds)}];
 (
   relation["type"="route"]["route"~"^(hiking|foot)$"];
   way["highway"~"^(path|footway)$"]["name"]["foot"!="no"]["access"!="private"]["access"!="no"];
@@ -55,7 +55,7 @@ function coordinates(value: unknown): [number, number][][] {
   return segments;
 }
 
-export function parseDiscovery(value: unknown, retrievedAt = new Date().toISOString()): HikeDiscovery {
+export function parseDiscovery(value: unknown, bounds: Bounds, retrievedAt = new Date().toISOString()): HikeDiscovery {
   if (!record(value) || !Array.isArray(value.elements)) throw new Error("The trail service returned an invalid response.");
   if (typeof value.remark === "string") throw new Error("The trail service could not complete the query. Try again later.");
   const hikes: Hike[] = [];
@@ -83,7 +83,7 @@ export function parseDiscovery(value: unknown, retrievedAt = new Date().toISOStr
         segments.push(...coordinates(member.geometry));
       }
     } else if (!relation) segments.push(...coordinates(element.geometry));
-    const regionalSegments = clipSegments(segments);
+    const regionalSegments = clipSegments(segments, bounds);
     const count = regionalSegments.reduce((sum, segment) => sum + segment.length, 0);
     if (!count) { skipped++; continue; }
     points += count;
@@ -104,12 +104,12 @@ export function parseDiscovery(value: unknown, retrievedAt = new Date().toISOStr
   return { hikes, retrievedAt, skipped };
 }
 
-export function mergeDiscovery(bundled: HikeDiscovery, cached?: HikeDiscovery): HikeDiscovery {
+export function mergeDiscovery(bundled: HikeDiscovery, bounds: Bounds, cached?: HikeDiscovery): HikeDiscovery {
   const hikes = new Map(bundled.hikes.map((hike) => [hike.source.id, hike]));
   for (const hike of cached?.hikes || []) {
     const previous = hikes.get(hike.source.id);
     if (previous && previous.source.retrievedAt >= hike.source.retrievedAt) continue;
-    const segments = clipSegments(hike.segments);
+    const segments = clipSegments(hike.segments, bounds);
     if (segments.length) hikes.set(hike.source.id, {
       ...hike, segments, source: { ...hike.source, regionalOnly: true },
     });
@@ -121,9 +121,11 @@ export function mergeDiscovery(bundled: HikeDiscovery, cached?: HikeDiscovery): 
   };
 }
 
-export function parseSnapshot(value: unknown): HikeDiscovery {
+export function parseSnapshot(value: unknown, bounds: Bounds): HikeDiscovery {
   if (!record(value) || typeof value.retrievedAt !== "string" || !Number.isFinite(Date.parse(value.retrievedAt)) ||
       !Array.isArray(value.hikes) || typeof value.skipped !== "number") throw new Error("Invalid bundled hike snapshot.");
+  if (value.hikes.length > 500) throw new Error("Bundled trail snapshot exceeds the supported feature limit.");
+  let totalPoints = 0;
   const hikes: Hike[] = value.hikes.map((hike: unknown) => {
     if (!record(hike) || typeof hike.name !== "string" || !Array.isArray(hike.segments) || !record(hike.source)) {
       throw new Error("Invalid hike in bundled snapshot.");
@@ -132,7 +134,7 @@ export function parseSnapshot(value: unknown): HikeDiscovery {
     if (typeof source.id !== "string" || !/^(way|relation)\/[1-9]\d*$/.test(source.id) ||
         source.url !== `https://www.openstreetmap.org/${source.id}` ||
         typeof source.retrievedAt !== "string" || !Number.isFinite(Date.parse(source.retrievedAt)) ||
-        typeof source.attribution !== "string" || !record(source.tags) ||
+        typeof source.attribution !== "string" || !source.attribution.includes("OpenStreetMap") || !record(source.tags) ||
         (source.kind !== "Hiking route" && source.kind !== "Mapped path")) throw new Error("Invalid snapshot provenance.");
     const tags: Record<string, string> = {};
     for (const [key, tag] of Object.entries(source.tags)) {
@@ -143,12 +145,15 @@ export function parseSnapshot(value: unknown): HikeDiscovery {
       if (!Array.isArray(segment) || segment.length < 2) throw new Error("Invalid snapshot geometry.");
       return segment.map((point: unknown): [number, number] => {
         if (!Array.isArray(point) || point.length !== 2 || typeof point[0] !== "number" || typeof point[1] !== "number" ||
-            !Number.isFinite(point[0]) || !Number.isFinite(point[1])) throw new Error("Invalid snapshot coordinate.");
+            !Number.isFinite(point[0]) || !Number.isFinite(point[1]) || Math.abs(point[0]) > 180 || Math.abs(point[1]) > 90) throw new Error("Invalid snapshot coordinate.");
         return [point[0], point[1]];
       });
     });
+    const pointCount = segments.reduce((sum, segment) => sum + segment.length, 0);
+    totalPoints += pointCount;
+    if (pointCount > 100_000 || totalPoints > 300_000) throw new Error("Bundled trail snapshot exceeds the supported geometry size.");
     return {
-      name: hike.name, segments: clipSegments(segments),
+      name: hike.name, segments: clipSegments(segments, bounds),
       source: { id: source.id, url: source.url, retrievedAt: source.retrievedAt,
         attribution: source.attribution, kind: source.kind, tags, regionalOnly: true },
     };
@@ -156,10 +161,10 @@ export function parseSnapshot(value: unknown): HikeDiscovery {
   return { hikes, retrievedAt: value.retrievedAt, skipped: value.skipped };
 }
 
-export async function discoverHikes(signal: AbortSignal, endpoint = OVERPASS_URL): Promise<HikeDiscovery> {
+export async function discoverHikes(signal: AbortSignal, bounds: Bounds, endpoint = OVERPASS_URL): Promise<HikeDiscovery> {
   if (!OVERPASS_SERVERS.some((server) => server.url === endpoint)) throw new Error("Unsupported trail service endpoint.");
   const url = new URL(endpoint);
-  url.searchParams.set("data", HIKE_QUERY);
+  url.searchParams.set("data", hikeQuery(bounds));
   const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(
     response.status === 429 ? "Trail service rate limit reached. Wait before trying again." :
@@ -185,7 +190,7 @@ export async function discoverHikes(signal: AbortSignal, endpoint = OVERPASS_URL
   }
   let data: unknown;
   try { data = JSON.parse(text); } catch { throw new Error("The trail service returned invalid JSON."); }
-  return parseDiscovery(data);
+  return parseDiscovery(data, bounds);
 }
 
 function escapeXml(value: string): string {
@@ -193,15 +198,16 @@ function escapeXml(value: string): string {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
-export function makeGpx(name: string, segments: { longitude: number; latitude: number; elevation?: number | null }[][], source?: HikeSource): string {
-  const metadata = source ? `<metadata><desc>${escapeXml(`${source.attribution}; ${source.kind}; retrieved ${source.retrievedAt}. ${source.regionalOnly ? "Geometry limited to the Garrett County region; may be only part of the full route. " : ""}Mapped geometry only, not verified navigation.`)}</desc><link href="${escapeXml(source.url)}"><text>OpenStreetMap source</text></link></metadata>` : "";
+export function makeGpx(name: string, segments: { longitude: number; latitude: number; elevation?: number | null }[][], source?: HikeSource, regionName = "the selected region"): string {
+  const metadata = source ? `<metadata><desc>${escapeXml(`${source.attribution}; ${source.kind}; retrieved ${source.retrievedAt}. ${source.regionalOnly ? `Geometry limited to ${regionName}; may be only part of the full route. ` : ""}Mapped geometry only, not verified navigation.`)}</desc><link href="${escapeXml(source.url)}"><text>OpenStreetMap source</text></link></metadata>` : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="Garrett County Adventures" xmlns="http://www.topografix.com/GPX/1/1">${metadata}<trk><name>${escapeXml(name)}</name>${segments.map((segment) =>
+<gpx version="1.1" creator="open.cms" xmlns="http://www.topografix.com/GPX/1/1">${metadata}<trk><name>${escapeXml(name)}</name>${segments.map((segment) =>
     `<trkseg>${segment.map((point) => `<trkpt lat="${point.latitude}" lon="${point.longitude}">${point.elevation == null ? "" : `<ele>${point.elevation}</ele>`}</trkpt>`).join("")}</trkseg>`,
   ).join("")}</trk></gpx>`;
 }
 
-export function hikeGpx(hike: Hike): string {
-  return makeGpx(hike.name, hike.segments.map((segment) => segment.map(([longitude, latitude]) => ({ longitude, latitude }))), hike.source);
+export function hikeGpx(hike: Hike, regionName?: string): string {
+  return makeGpx(hike.name, hike.segments.map((segment) => segment.map(([longitude, latitude]) => ({ longitude, latitude }))), hike.source, regionName);
 }
-import { REGION_BBOX, clipSegments } from "./region";
+import type { Bounds } from "./site-package";
+import { clipSegments, regionBbox } from "./region";

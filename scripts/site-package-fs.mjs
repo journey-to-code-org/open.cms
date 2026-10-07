@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   validateCollections,
   validateManifestData,
+  validateNavigation,
   validatePages,
   validatePlaces,
   validateSiteConfig,
@@ -53,4 +54,80 @@ export function validateSitePackage(packageRoot) {
   const collections = validateCollections(readJson(paths.collections), contentIds);
   validatePages(readJson(paths.pages), collections);
   return { manifest, site };
+}
+
+function readContent(directory) {
+  const entries = fs.readdirSync(directory, { withFileTypes: true });
+  if (entries.some((entry) => entry.isSymbolicLink())) throw new Error("Site content cannot contain symbolic links.");
+  return entries.filter((entry) => entry.isFile() && entry.name.endsWith(".md")).map((entry) => entry.name).sort().map((name) => {
+    const source = fs.readFileSync(path.join(directory, name), "utf8");
+    const match = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?([\s\S]*)$/);
+    const fields = {};
+    if (match) for (const line of match[1].split(/\r?\n/)) {
+      const field = line.match(/^([\w-]+):\s*(.*)$/);
+      if (field) fields[field[1]] = field[2].replace(/^(?:"(.*)"|'(.*)')$/, (_, a, b) => a ?? b);
+    }
+    const id = path.basename(name, ".md");
+    return { id, title: fields.title || id.replace(/-/g, " "), description: fields.description || fields.summary || "", body: match ? match[2].trim() : source.trim(), fields };
+  });
+}
+
+function validatePackageTree(directory) {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isSymbolicLink()) throw new Error(`Package assets cannot contain symbolic links: ${entry.name}`);
+    if (entry.isDirectory()) validatePackageTree(fullPath);
+    else if (!entry.isFile()) throw new Error(`Package assets contain an unsupported file: ${entry.name}`);
+  }
+}
+
+function normalizePlaces(value) {
+  if (!value || value.type !== "FeatureCollection" || !Array.isArray(value.features)) throw new Error("Site places must be a GeoJSON FeatureCollection.");
+  const ids = new Set();
+  return value.features.map((feature, index) => {
+    const properties = feature?.properties || {};
+    const coordinates = feature?.geometry?.coordinates;
+    const id = String(feature?.id ?? properties.id ?? `place-${index + 1}`);
+    const name = properties.name ?? properties.title ?? properties["Park Name"];
+    const description = properties.description ?? properties.Description ?? "";
+    const activityValue = properties.activities ?? properties.Activities ?? [];
+    const activities = Array.isArray(activityValue) ? activityValue : String(activityValue).split(",").map((item) => item.trim()).filter(Boolean);
+    if (!id || ids.has(id) || typeof name !== "string" || !name.trim() || !Array.isArray(coordinates) || coordinates.length < 2 ||
+        !Number.isFinite(coordinates[0]) || !Number.isFinite(coordinates[1]) || coordinates[0] < -180 || coordinates[0] > 180 ||
+        coordinates[1] < -90 || coordinates[1] > 90 || !Array.isArray(activities)) throw new Error(`Site place ${index + 1} is invalid.`);
+    ids.add(id);
+    return { id, name: name.trim(), description: String(description), activities: activities.map(String), coordinates: [coordinates[0], coordinates[1]] };
+  });
+}
+
+/** Load, validate, and normalize every runtime input from a site package. */
+export function loadSitePackage(packagePath) {
+  const requested = path.resolve(packagePath);
+  const { manifest, site } = validateSitePackage(requested);
+  const { root, paths } = resolvePackagePaths(manifest, requested);
+  const navigation = validateNavigation(readJson(paths.navigation));
+  const collections = readJson(paths.collections);
+  const pages = readJson(paths.pages);
+  const map = readJson(paths.map);
+  const theme = readJson(paths.theme);
+  const places = normalizePlaces(readJson(paths.places));
+  const trails = readJson(paths.trails);
+  const content = readContent(paths.content);
+  if (!trails || !Array.isArray(trails.hikes) || typeof trails.retrievedAt !== "string" || !Number.isFinite(Date.parse(trails.retrievedAt))) {
+    throw new Error("Site trail snapshot is invalid.");
+  }
+  if (!map || typeof map.style !== "string" || !/^[a-z0-9-]+$/.test(map.style) || !Array.isArray(map.center) || map.center.length !== 2 ||
+      !Number.isFinite(map.center[0]) || Math.abs(map.center[0]) > 180 || !Number.isFinite(map.center[1]) || Math.abs(map.center[1]) > 90 ||
+      !Number.isFinite(map.zoom) || map.zoom < 0 || map.zoom > 24) throw new Error("Site map configuration is invalid.");
+  if (!theme || theme.accent !== site.theme.accent || theme.background !== site.theme.background || theme.text !== site.theme.text ||
+      (theme.fontFamily !== undefined && theme.fontFamily !== site.theme.fontFamily)) throw new Error("Site theme file must match the validated theme in site.json.");
+  for (const [id, collection] of Object.entries(collections)) {
+    if (!collection || !Array.isArray(collection.items)) throw new Error(`Collection '${id}' is invalid.`);
+    collection.items = collection.items.map((item) => {
+      if (!content.some((record) => record.id === item)) throw new Error(`Collection '${id}' refers to missing content '${item}'.`);
+      return item;
+    });
+  }
+  validatePackageTree(paths.assets);
+  return { manifest, config: site, navigation, pages, collections, places, trails, content, map, theme, paths: { root, ...paths } };
 }
