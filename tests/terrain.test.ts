@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Map } from "mapbox-gl";
-import { applyTerrainView, applyCameraPitch, setTerrainElevation, terrainMinZoom, TERRAIN_SOURCE, TERRAIN_PITCH } from "../src/terrain";
+import { applyTerrainView, applyCameraPitch, setTerrainElevation, terrainMinZoom, TERRAIN_SOURCE, TERRAIN_PITCH, TERRAIN_EXAGGERATION } from "../src/terrain";
 import { regionMinZoom } from "../src/region";
 
 test("3D loads one DEM source, enables terrain and tilt; 2D resets both", () => {
@@ -25,16 +25,16 @@ test("3D loads one DEM source, enables terrain and tilt; 2D resets both", () => 
     easeTo: (value: typeof camera) => { camera = value; },
   };
   applyTerrainView(mock as Map, true, false);
-  assert.deepEqual(terrain, { source: TERRAIN_SOURCE, exaggeration: 5 });
+  assert.deepEqual(terrain, { source: TERRAIN_SOURCE, exaggeration: TERRAIN_EXAGGERATION });
   assert.equal(camera?.pitch, TERRAIN_PITCH);
-  assert.equal(minPitch, 50);
+  assert.equal(minPitch, TERRAIN_PITCH);
   assert.equal(camera?.duration, 800);
   assert.ok(zoom > 10);
   applyTerrainView(mock as Map, true, true);
   assert.equal(additions, 1);
   assert.equal(camera?.duration, 0);
   applyTerrainView(mock as Map, true, true, 5, 10);
-  assert.equal(camera?.pitch, 50, "3D cannot start below its enforced minimum");
+  assert.equal(camera?.pitch, TERRAIN_PITCH, "3D cannot start below its enforced minimum");
   applyTerrainView(mock as Map, true, true, 5, 80);
   assert.equal(camera?.pitch, 80, "higher user pitch is preserved");
   applyTerrainView(mock as Map, false, true);
