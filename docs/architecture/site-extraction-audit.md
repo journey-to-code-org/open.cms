@@ -23,7 +23,7 @@ Searches found Garrett/Deep Creek/Maryland/Oakland references throughout those r
 
 `sites/garrett-county/` and the fictional `sites/demo-region/` use a JSON manifest with `format: 1`. Package paths are relative and the TypeScript parser rejects traversal paths. `scripts/validate-site.mjs` checks required paths, region bounds, page-to-collection references, GeoJSON shape, and collection article references.
 
-`src/site-package.ts` defines `SiteConfig`, `RegionConfig`, `SeoConfig`, `PwaConfig`, `ThemeConfig`, and `SiteManifest`. Package fields cover identity, locale, publisher, bounds, SEO, PWA, and theme. The current schemas are the initial v1 contract and still need broader JSON Schema coverage and migration policy.
+`src/site-package.ts` defines `SiteConfig`, `RegionConfig`, `SeoConfig`, `PwaConfig`, `ThemeConfig`, and `SiteManifest`. Browser-safe pure value checks live in `shared/site-validation.mjs`; `scripts/site-package-fs.mjs` adds Node-only loading and path security checks, then delegates data checks to the shared module. The declaration file is `shared/site-validation.d.mts`. Tests exercise both layers. The current schemas are the initial v1 contract and still need broader JSON Schema coverage and migration policy.
 
 ## Engine and site boundaries
 

@@ -1,6 +1,6 @@
 {
   "name": "open-cms",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A place-based CMS and static publishing engine for regional guides and discovery sites.",
   "scripts": {
     "build": "npm run build:wasm && npm run typecheck && vite build",
@@ -17,19 +17,24 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mnichols08/chingu-mapbox.git"
+    "url": "git+https://github.com/journey-to-code-org/open.cms.git"
   },
   "keywords": [
-    "educational",
-    "map",
-    "fun"
+    "cms",
+    "static-site-generator",
+    "web-components",
+    "wasm",
+    "rust",
+    "geospatial",
+    "regional-publishing",
+    "pwa"
   ],
   "author": "Mikey Nichols",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/mnichols08/chingu-mapbox/issues"
+    "url": "https://github.com/journey-to-code-org/open.cms/issues"
   },
-  "homepage": "https://github.com/mnichols08/chingu-mapbox#readme",
+  "homepage": "https://github.com/journey-to-code-org/open.cms#readme",
   "devDependencies": {
     "@types/geojson": "^7946.0.16",
     "sass": "^1.105.1",
