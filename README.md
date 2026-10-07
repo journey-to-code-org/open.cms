@@ -1,93 +1,55 @@
-# Garrett County Adventures
+# open.cms
 
-Garrett County Adventures is a responsive trip-planning website for exploring
-parks, trails, towns, and local guides in Garrett County, Maryland. It combines
-a Mapbox map with curated places, OpenStreetMap trail data, and tools for
-reviewing GPX tracks. Trail analysis runs locally in the browser; the app does
-not upload GPX files.
+**open.cms is an open-source, place-based CMS and static publishing engine for regional guides, local discovery sites, outdoor and tourism projects, maps, trails, and similar geographically focused websites.**
 
-## What you can do
+The project is in an early transition. Version 0.1.x establishes a versioned site-package format and migration foundation. The live application is still the static GCADV-derived baseline; packages are not yet authoritative runtime inputs.
 
-- Browse trip guides and local destination articles from the homepage.
-- Search and filter 16 curated places, then select a place to locate it on the
-  map or save its details in this browser.
-- Explore the map, which starts in **3D terrain mode**. Use the mouse wheel to
-  zoom, **Return to 2D** to disable terrain, and the map settings to adjust
-  pitch and terrain exaggeration.
-- Browse the bundled OpenStreetMap snapshot of regional hiking routes and
-  mapped paths. Refresh it on demand from the Hikes tab; refreshes require an
-  internet connection.
-- Import GPX tracks or routes in Trail Lab to review distance, elevation,
-  ascent, and estimated walking time. Export GPX or save the analysis for
-  offline access.
-- Install the site as a PWA. Saved details and the app shell can work offline;
-  Mapbox styles, tiles, and live trail refreshes require a connection.
+## What works in 0.1.x
 
-The bundled trail snapshot is community mapping, not verified trail guidance.
-Routes may be incomplete or clipped to the Garrett County map region; access,
-conditions, and accessibility are not verified. See the [detailed guide](docs/README.md)
-for data limits, analysis details, and attribution.
+- Version 1 site-package manifests, typed site configuration, and package validation.
+- Garrett County migration and fictional Pine Hollow demo fixtures.
+- Rust/WASM GPX analysis and early geographic utilities for bounds validation and point containment.
+- Static GCADV-derived map, guide, trail, saved-outing, and offline/PWA functionality.
+- Local package checks with `npm run validate:site -- sites/demo-region` (or `sites/garrett-county`).
 
-## Languages and tools
+## What is transitional
 
-| Technology | Use |
-| --- | --- |
-| TypeScript | Map explorer, place search, saved outings, trail workflows, and browser storage |
-| Rust compiled to WebAssembly | Local GPX distance and elevation calculations |
-| JavaScript | Node build scripts and site behavior |
-| HTML and CSS | Accessible page structure, responsive layouts, and styling |
-| Markdown with YAML front matter | Trip guide content and metadata |
-| Mapbox GL JS, Vite, Sass, and Node.js | Interactive maps, development server, asset bundling, and CSS processing |
+- Runtime code still consumes legacy Garrett-specific root inputs.
+- Site selection is not fully wired into `dev` or `build`; changing a package does not automatically change the live app.
+- Web Component extraction and package-driven static generation have not happened yet.
+- Migration data is duplicated between root runtime inputs and `sites/garrett-county/`.
 
-The front end uses browser APIs including IndexedDB, Web Workers, and service
-workers. It does not use a client-side UI framework.
+The [runtime bridge note](docs/architecture/v0.1-runtime-bridge.md) explains which files currently power the app. The [extraction audit](docs/architecture/site-extraction-audit.md) records known coupling and migration boundaries.
 
-## Run locally
+## Roadmap
 
-Requirements: Node.js LTS with npm, Rust and Cargo, the
-`wasm32-unknown-unknown` target, and `wasm-pack`.
+- **0.1.x — Package specification and migration foundation.** Establish and validate package structure while maintaining the legacy runtime.
+- **0.2.x — Site-package-driven runtime.** Make packages the authoritative source for site data and build output.
+- **0.3.x — CMS editing/admin experience.** Explore editing workflows after the reusable runtime is established.
+
+These are project direction, not promises of specific features or dates.
+
+## Development
+
+Requirements: Node.js LTS with npm, Rust/Cargo, the `wasm32-unknown-unknown` target, and `wasm-pack`.
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo install wasm-pack --locked
 npm ci
+npm test
+npm run typecheck
+npm run test:rust
+npm run validate:site -- sites/garrett-county
+npm run validate:site -- sites/demo-region
+npm run build
 ```
 
-Create a local Mapbox configuration from the example and add a **public**
-Mapbox token (`pk.` prefix):
+The legacy application uses a public Mapbox token for its basemap. Follow [map-config.example.json](map-config.example.json) and the existing deployment instructions in [docs/README.md](docs/README.md). The tokenless build still produces the rest of the static site.
 
-```sh
-cp map-config.example.json map-config.local.json
-```
+## Technology
 
-Start the Vite development server (it builds the Rust/WASM module first):
+The project favors TypeScript, HTML, CSS, native browser APIs, Web Components, and Rust compiled to WebAssembly. It does not use a client-side UI framework. Rust currently handles local GPX analysis and early geographic validation helpers; broader geographic processing is future work.
 
-```sh
-npm run dev
-```
+## License
 
-Open `http://localhost:3000`. For a production build, run `npm run build` and
-then `npm start` to serve it on port 3000. The token is public to browser
-visitors, so restrict it to the domains you use and grant only the required scopes. Never
-put a secret `sk.` token in this app. On deployment, provide `map-config.json`
-beside `index.html` as a separate runtime file, or set `MAPBOX_TOKEN` (also
-accepts `MAPBOX_PUBLIC_TOKEN`) in the deployment build environment so the
-build generates that file. The local config is ignored by Git and the runtime
-file is excluded from the offline cache. The rest of the site still builds
-without a token, but the basemap will show a setup message.
-
-## Useful commands
-
-| Command | Purpose |
-| --- | --- |
-| `npm run build` | Build Rust/WASM, type-check TypeScript, and create production files in `dist` |
-| `npm run build:content` | Rebuild guide pages, homepage cards, sitemap, and robots file without rebuilding Rust/WASM |
-| `npm run dev` | Build the WASM engine and start Vite with hot module replacement on port 3000 |
-| `npm run preview` | Preview the production build with Vite on port 4173 |
-| `npm run typecheck` | Type-check the TypeScript app |
-| `npm test` | Run TypeScript tests |
-| `npm run test:rust` | Run Rust tests |
-| `npm run refresh:hikes` | Refresh the checked-in regional OpenStreetMap snapshot |
-
-For feature behavior, data sources, GPX calculations, offline limits, and
-deployment details, see [docs/README.md](docs/README.md).
+See [LICENSE](LICENSE).

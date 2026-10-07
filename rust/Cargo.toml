@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "ISC"
 description = "Local segmented GPX distance and elevation analysis"
-repository = "https://github.com/mnichols08/chingu-mapbox"
+repository = "https://github.com/journey-to-code-org/open.cms"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
