@@ -25,6 +25,8 @@ jobs:
         run: cargo install wasm-pack --locked
       - name: Install Node dependencies
         run: npm ci
+      - name: Generate Rust/WASM bindings
+        run: npm run build:wasm
       - name: Run tests
         run: npm test
       - name: Typecheck
