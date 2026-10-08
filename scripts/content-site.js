@@ -69,23 +69,35 @@ function markdown(source) {
   return output.join("\n");
 }
 
-function card(item, label = "READ THE STORY", variant = "default") {
+function pageContext(outputName) {
+  const depth = outputName.split("/").length - 1;
+  return { outputName, rootPrefix: depth === 0 ? "./" : "../".repeat(depth) };
+}
+
+function rootHref(href, context) {
+  if (href === "/") return context.rootPrefix;
+  if (href.startsWith("/")) return `${context.rootPrefix}${href.slice(1)}`;
+  if (href.startsWith("./")) return `${context.rootPrefix}${href.slice(2)}`;
+  return href;
+}
+
+function card(item, label = "READ THE STORY", variant = "default", context = pageContext("index.html")) {
   const image = variant === "image-cards" && item.fields.image
     ? `<img class="guide-card-image" src="${escape(item.fields.image)}" alt="${escape(item.fields.imageAlt || item.title)}" loading="lazy">`
     : "";
-  return `<article class="guide-card${image ? " guide-card--image" : ""}">${image}<div class="guide-card-copy"><h3><a href="./${encodeURIComponent(item.id)}.html">${escape(item.title)}</a></h3><p>${escape(item.description)}</p><span>${escape(label)}</span></div></article>`;
+  return `<article class="guide-card${image ? " guide-card--image" : ""}">${image}<div class="guide-card-copy"><h3><a href="${escape(`${context.rootPrefix}${encodeURIComponent(item.id)}.html`)}">${escape(item.title)}</a></h3><p>${escape(item.description)}</p><span>${escape(label)}</span></div></article>`;
 }
 
-function documentHead(site, title = site.config.seo.title, description = site.config.seo.description, canonical = site.config.canonicalUrl) {
+function documentHead(site, context = pageContext("index.html"), title = site.config.seo.title, description = site.config.seo.description, canonical = site.config.canonicalUrl) {
   const url = canonical ? `<link rel="canonical" href="${escape(canonical)}">` : "";
-  return `<!doctype html><html lang="${escape(site.config.locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="application-name" content="${escape(site.config.name)}"><meta name="description" content="${escape(description)}"><meta name="theme-color" content="${escape(site.config.pwa.themeColor)}">${url}<link rel="stylesheet" href="./site.css"><link rel="manifest" href="./manifest.webmanifest"><title>${escape(title)}</title><script defer src="./site.js"></script></head>`;
+  return `<!doctype html><html lang="${escape(site.config.locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="application-name" content="${escape(site.config.name)}"><meta name="description" content="${escape(description)}"><meta name="theme-color" content="${escape(site.config.pwa.themeColor)}">${url}<link rel="stylesheet" href="${context.rootPrefix}site.css"><link rel="manifest" href="${context.rootPrefix}manifest.webmanifest"><title>${escape(title)}</title><script defer src="${context.rootPrefix}site.js"></script></head>`;
 }
 
-function navigation(site) {
-  return site.navigation.items.map((item) => `<a href="${escape(item.href)}">${escape(item.label)}</a>`).join("");
+function navigation(site, context) {
+  return site.navigation.items.map((item) => `<a href="${escape(rootHref(item.href, context))}">${escape(item.label)}</a>`).join("");
 }
 
-function renderSection(site, section) {
+function renderSection(site, section, context) {
   const props = section.props || {};
   switch (section.component) {
     case "hero": {
@@ -99,7 +111,7 @@ function renderSection(site, section) {
       const collection = site.collections[props.collection];
       const items = collection.items.map((id) => site.content.find((entry) => entry.id === id)).filter(Boolean);
       const variant = props.variant || "default";
-      return `<section class="content-section collection-${escape(variant)}"><header class="section-heading"><div><p class="eyebrow">${escape(collection.label || "EXPLORE")}</p><h2>${escape(collection.title)}</h2></div></header><div class="guide-grid guide-grid--${escape(variant)}">${items.map((item) => card(item, collection.title, variant)).join("")}</div></section>`;
+      return `<section class="content-section collection-${escape(variant)}"><header class="section-heading"><div><p class="eyebrow">${escape(collection.label || "EXPLORE")}</p><h2>${escape(collection.title)}</h2></div></header><div class="guide-grid guide-grid--${escape(variant)}">${items.map((item) => card(item, collection.title, variant, context)).join("")}</div></section>`;
     }
     case "feature-gallery":
       return `<section class="content-section"><h2>${escape(props.title || "Places to explore")}</h2><div class="guide-grid">${site.places.map((place) => `<article class="guide-card"><h3>${escape(place.name)}</h3><p>${escape(place.description)}</p></article>`).join("")}</div></section>`;
@@ -113,19 +125,23 @@ function renderSection(site, section) {
 function buildSite(site) {
   const home = site.pages.home || Object.values(site.pages).find((page) => page.route === "/");
   if (!home) throw new Error("Site pages must define a home page at '/'.");
-  const homeHtml = `${documentHead(site)}<body class="home-page"><a class="skip-link" href="#main">Skip to content</a><header class="site-header"><a class="site-brand" href="./">${escape(site.config.name)}</a><nav class="site-nav" aria-label="Main navigation">${navigation(site)}</nav></header><main id="main">${home.sections.map((section) => renderSection(site, section)).join("\n")}</main><footer class="site-footer"><span>${escape(site.config.publisher?.name || site.config.name)}</span></footer></body></html>`;
-  const exploreHtml = `${documentHead(site, `${site.config.region.name} map`, site.config.description)}<body class="explore-page"><header class="site-header"><a class="site-brand" href="./">${escape(site.config.name)}</a><nav class="site-nav">${navigation(site)}</nav></header><main><div id="app" aria-label="Interactive ${escape(site.config.region.name)} map"></div></main><footer class="site-footer"><a href="./">${escape(site.config.name)}</a></footer><noscript><p>The map requires JavaScript. Browse the guides from the home page.</p></noscript><script type="module" src="./src/app.ts"></script></body></html>`;
+  const homeContext = pageContext("index.html");
+  const exploreContext = pageContext("explore.html");
+  const homeHtml = `${documentHead(site, homeContext)}<body class="home-page"><a class="skip-link" href="#main">Skip to content</a><header class="site-header"><a class="site-brand" href="${homeContext.rootPrefix}">${escape(site.config.name)}</a><nav class="site-nav" aria-label="Main navigation">${navigation(site, homeContext)}</nav></header><main id="main">${home.sections.map((section) => renderSection(site, section, homeContext)).join("\n")}</main><footer class="site-footer"><span>${escape(site.config.publisher?.name || site.config.name)}</span></footer></body></html>`;
+  const exploreHtml = `${documentHead(site, exploreContext, `${site.config.region.name} map`, site.config.description)}<body class="explore-page"><header class="site-header"><a class="site-brand" href="${exploreContext.rootPrefix}">${escape(site.config.name)}</a><nav class="site-nav">${navigation(site, exploreContext)}</nav></header><main><div id="app" aria-label="Interactive ${escape(site.config.region.name)} map"></div></main><footer class="site-footer"><a href="${exploreContext.rootPrefix}">${escape(site.config.name)}</a></footer><noscript><p>The map requires JavaScript. Browse the guides from the home page.</p></noscript><script type="module" src="./src/app.ts"></script></body></html>`;
   const pages = site.content.map((item) => {
     const canonical = site.config.canonicalUrl ? `${site.config.canonicalUrl.replace(/\/$/, "")}/${encodeURIComponent(item.id)}.html` : undefined;
-    const source = `${documentHead(site, item.title, item.description || site.config.seo.description, canonical)}<body class="editorial-page"><header class="editorial-header"><a href="./">${escape(site.config.name)}</a><nav>${navigation(site)}</nav></header><main class="article-main"><header class="article-hero"><p class="eyebrow">${escape(site.config.region.name)}</p><h1>${escape(item.title)}</h1><p>${escape(item.description)}</p></header><article class="guide-article">${markdown(item.body)}</article></main></body></html>`;
+    const context = pageContext(`${item.id}.html`);
+    const source = `${documentHead(site, context, item.title, item.description || site.config.seo.description, canonical)}<body class="editorial-page"><header class="editorial-header"><a href="${context.rootPrefix}">${escape(site.config.name)}</a><nav>${navigation(site, context)}</nav></header><main class="article-main"><header class="article-hero"><p class="eyebrow">${escape(site.config.region.name)}</p><h1>${escape(item.title)}</h1><p>${escape(item.description)}</p></header><article class="guide-article">${markdown(item.body)}</article></main></body></html>`;
     return { name: `${item.id}.html`, route: `/${item.id}.html`, source };
   });
   for (const [id, page] of Object.entries(site.pages)) {
     if (page === home || page.route === "/") continue;
     const name = page.route.endsWith("/") ? `${page.route.slice(1)}index.html` : page.route.slice(1);
+    const context = pageContext(name);
     const canonical = site.config.canonicalUrl ? `${site.config.canonicalUrl.replace(/\/$/, "")}${page.route}` : undefined;
-    const source = `${documentHead(site, page.sections.find((section) => section.component === "hero")?.props?.title || site.config.seo.title,
-      site.config.seo.description, canonical)}<body class="home-page"><header class="site-header"><a class="site-brand" href="./">${escape(site.config.name)}</a><nav class="site-nav">${navigation(site)}</nav></header><main>${page.sections.map((section) => renderSection(site, section)).join("\n")}</main><footer class="site-footer">${escape(site.config.publisher?.name || site.config.name)}</footer></body></html>`;
+    const source = `${documentHead(site, context, page.sections.find((section) => section.component === "hero")?.props?.title || site.config.seo.title,
+      site.config.seo.description, canonical)}<body class="home-page"><header class="site-header"><a class="site-brand" href="${context.rootPrefix}">${escape(site.config.name)}</a><nav class="site-nav">${navigation(site, context)}</nav></header><main>${page.sections.map((section) => renderSection(site, section, context)).join("\n")}</main><footer class="site-footer">${escape(site.config.publisher?.name || site.config.name)}</footer></body></html>`;
     pages.push({ name, route: page.route, source, id });
   }
   const base = site.config.canonicalUrl?.replace(/\/$/, "");

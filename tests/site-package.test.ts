@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createServer } from "vite";
 import { parseSiteConfig, parseSiteManifest, validateSitePackageIdentity } from "../src/site-package";
-import { validateCollections, validateNavigation, validatePages, validatePlaces } from "../shared/site-validation.mjs";
+import { validateCollections, validateGeneratedOutputPaths, validateNavigation, validatePages, validatePlaces } from "../shared/site-validation.mjs";
 import { loadSitePackage, validateSitePackage } from "../scripts/site-package-fs.mjs";
 import { buildSite } from "../scripts/content-site.js";
 import { buildSiteStylesheet } from "../scripts/site-styles.mjs";
@@ -103,6 +103,41 @@ test("page presentation variants validate and render only contained package asse
     rmSync(path.join(root, "assets", "images", "hero.webp"));
     assert.throws(() => loadSitePackage(root), /missing package asset '\/images\/hero\.webp'/);
   } finally { rmSync(path.dirname(root), { recursive: true, force: true }); }
+});
+
+test("nested configured pages use depth-aware root links while root output stays unchanged", () => {
+  const site = loadSitePackage(path.resolve("sites/demo-region"));
+  site.pages.team = { route: "/about/team.html", sections: [{ component: "guide-collection", props: { collection: "trailheads" } }] };
+  site.pages.guides = { route: "/guides/", sections: [{ component: "guide-collection", props: { collection: "trailheads" } }] };
+  const generated = buildSite(site);
+  const team = generated.pages.find((page: { name: string }) => page.name === "about/team.html").source;
+  const guides = generated.pages.find((page: { name: string }) => page.name === "guides/index.html").source;
+  assert.match(guides, /href="\.\.\/site\.css"/);
+  assert.match(guides, /href="\.\.\/manifest\.webmanifest"/);
+  assert.match(guides, /src="\.\.\/site\.js"/);
+  assert.match(guides, /class="site-brand" href="\.\.\/"/);
+  assert.match(guides, /href="\.\.\/#places"/);
+  assert.match(guides, /href="\.\.\/fern-creek\.html"/);
+  assert.match(team, /href="\.\.\/site\.css"/);
+  assert.match(team, /class="site-brand" href="\.\.\/"/);
+  assert.match(generated.homeHtml, /href="\.\/site\.css"/);
+  assert.match(generated.homeHtml, /href="\.\/manifest\.webmanifest"/);
+  assert.match(generated.homeHtml, /src="\.\/site\.js"/);
+  assert.match(generated.homeHtml, /class="site-brand" href="\.\/"/);
+});
+
+test("configured output paths reject reserved files and page or article collisions", () => {
+  const site = loadSitePackage(path.resolve("sites/demo-region"));
+  const collections = site.collections;
+  const makePage = (route: string) => ({ route, sections: [] });
+  assert.throws(() => validatePages({ home: makePage("/"), explorer: makePage("/explore.html") }, collections), /reserved engine output/);
+  assert.throws(() => validatePages({ home: makePage("/"), child: makePage("/explore.html/child") }, collections), /reserved engine output/);
+  assert.throws(() => validatePages({ home: makePage("/"), styles: makePage("/site.css") }, collections), /reserved engine output/);
+  assert.throws(() => validatePages({ home: makePage("/"), malformed: makePage("/about//team") }, collections), /safe absolute route/);
+  assert.throws(() => validatePages({ home: makePage("/"), one: makePage("/guides/"), two: makePage("/guides/index.html") }, collections), /collides/);
+  assert.throws(() => validatePages({ home: makePage("/"), file: makePage("/about"), child: makePage("/about/team.html") }, collections), /conflicts/);
+  assert.throws(() => validateGeneratedOutputPaths({ ...site.pages, article: makePage("/fern-creek.html") }, site.content.map((item) => item.id)), /collides with page 'article'/);
+  assert.throws(() => validateGeneratedOutputPaths(site.pages, [...site.content.map((item) => item.id), "explore"]), /reserved engine output/);
 });
 
 test("page variants and unsafe hero asset references are rejected", () => {

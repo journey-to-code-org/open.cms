@@ -5,6 +5,7 @@ import {
   validateManifestData,
   validateNavigation,
   validatePages,
+  validateGeneratedOutputPaths,
   validatePlaces,
   validateSiteConfig,
   validateSiteIdentity,
@@ -74,6 +75,7 @@ export function validateSitePackage(packageRoot) {
   const contentIds = new Set(content.map((item) => item.id));
   const collections = validateCollections(readJson(paths.collections), contentIds);
   const pages = validatePages(readJson(paths.pages), collections);
+  validateGeneratedOutputPaths(pages, contentIds);
   validatePageAndContentAssets(pages, content, paths.assets);
   return { manifest, site };
 }

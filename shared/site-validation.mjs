@@ -137,6 +137,7 @@ export function validatePages(pages, collections) {
   for (const [id, page] of Object.entries(pages)) {
     if (!isRecord(page) || !nonEmpty(page.route) || !page.route.startsWith("/") || page.route.includes("\\") ||
         /[?#\s<>"']/.test(page.route) || page.route.split("/").some((part) => part === "." || part === "..") ||
+        (page.route !== "/" && page.route.slice(1).replace(/\/$/, "").split("/").some((part) => !part)) ||
         !/^\/[a-z0-9._/-]*$/i.test(page.route)) throw new Error(`Page '${id}' must have a safe absolute route.`);
     if (!Array.isArray(page.sections)) throw new Error(`Page '${id}' sections must be an array.`);
     for (const [index, section] of page.sections.entries()) {
@@ -174,5 +175,67 @@ export function validatePages(pages, collections) {
       }
     }
   }
+  validatePageOutputPaths(pages);
+  return pages;
+}
+
+const RESERVED_OUTPUTS = new Set([
+  "index.html", "explore.html", "site.css", "site.js", "manifest.webmanifest",
+  "service-worker.js", "map-config.json", "sitemap.xml", "robots.txt",
+]);
+
+function outputNameForRoute(route) {
+  if (route === "/") return "index.html";
+  return route.endsWith("/") ? `${route.slice(1)}index.html` : route.slice(1);
+}
+
+function validatePageOutputPaths(pages, contentIds = []) {
+  const outputs = [];
+  for (const [id, page] of Object.entries(pages)) {
+    const output = outputNameForRoute(page.route);
+    outputs.push({ id: `page '${id}'`, output, allowsIndex: page.route === "/" });
+  }
+  for (const id of contentIds) outputs.push({ id: `Markdown article '${id}'`, output: `${encodeURIComponent(id)}.html`, allowsIndex: false });
+
+  for (const record of outputs) {
+    if (RESERVED_OUTPUTS.has(record.output.toLowerCase()) && !(record.allowsIndex && record.output === "index.html")) {
+      throw new Error(`${record.id} output '${record.output}' conflicts with reserved engine output.`);
+    }
+    if (record.output.toLowerCase() === "assets" || record.output.toLowerCase().startsWith("assets/")) {
+      throw new Error(`${record.id} output '${record.output}' conflicts with Vite output assets.`);
+    }
+  }
+
+  const seen = new Map();
+  for (const record of outputs) {
+    const key = record.output.toLowerCase();
+    const previous = seen.get(key);
+    if (previous) throw new Error(`${record.id} output '${record.output}' collides with ${previous.id} output '${previous.output}'.`);
+    seen.set(key, record);
+  }
+  for (const record of outputs) {
+    const parts = record.output.toLowerCase().split("/");
+    for (let index = 1; index < parts.length; index++) {
+      const ancestor = parts.slice(0, index).join("/");
+      if (seen.has(ancestor)) {
+        const previous = seen.get(ancestor);
+        throw new Error(`${record.id} output '${record.output}' conflicts with ${previous.id} output '${previous.output}'.`);
+      }
+    }
+  }
+  for (const [id, page] of Object.entries(pages)) {
+    const output = outputNameForRoute(page.route).toLowerCase();
+    if ([...RESERVED_OUTPUTS].some((reserved) => {
+      const reservedPath = reserved.toLowerCase();
+      return reservedPath.startsWith(`${output}/`) || output.startsWith(`${reservedPath}/`);
+    })) {
+      throw new Error(`Page '${id}' route '${page.route}' conflicts with a reserved engine output.`);
+    }
+  }
+}
+
+export function validateGeneratedOutputPaths(pages, contentIds) {
+  if (!isRecord(pages)) throw new Error("Output path validation requires validated pages.");
+  validatePageOutputPaths(pages, contentIds);
   return pages;
 }
