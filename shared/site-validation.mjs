@@ -2,6 +2,11 @@ export const PAGE_COMPONENTS = new Set(["hero", "guide-collection", "feature-gal
 const MANIFEST_PATHS = ["site", "map", "navigation", "collections", "pages", "content", "places", "trails", "theme", "assets"];
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const nonEmpty = (value) => typeof value === "string" && value.trim().length > 0;
+export function validatePublicAssetPath(value) {
+  return typeof value === "string" && value.startsWith("/") && !value.startsWith("//") &&
+    !value.includes("\\") && value.split("/").length > 2 &&
+    value.slice(1).split("/").every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part) && part !== "." && part !== "..");
+}
 
 export function validateManifestData(manifest) {
   if (!isRecord(manifest)) throw new Error("Manifest must be an object.");
@@ -139,9 +144,33 @@ export function validatePages(pages, collections) {
         throw new Error(`Page '${id}' section ${index} uses an unknown component.`);
       }
       if (section.props !== undefined && !isRecord(section.props)) throw new Error(`Page '${id}' section ${index} props must be an object when provided.`);
+      const props = section.props || {};
+      const allowedProps = {
+        hero: new Set(["title", "variant", "image", "imageAlt", "eyebrow", "description"]),
+        "guide-collection": new Set(["collection", "variant"]),
+        "feature-gallery": new Set(["title"]),
+        "install-prompt": new Set(),
+      }[section.component];
+      for (const [key, value] of Object.entries(props)) {
+        if (!allowedProps.has(key)) throw new Error(`Page '${id}' section ${index} has unsupported ${section.component} prop '${key}'.`);
+        if (typeof value !== "string" || !nonEmpty(value)) throw new Error(`Page '${id}' section ${index} prop '${key}' must be a non-empty string.`);
+      }
+      if (section.component === "hero") {
+        if (props.variant !== undefined && !["default", "landscape"].includes(props.variant)) {
+          throw new Error(`Page '${id}' hero variant must be 'default' or 'landscape'.`);
+        }
+        if (props.image !== undefined && !validatePublicAssetPath(props.image)) {
+          throw new Error(`Page '${id}' hero image must be a safe package asset path beginning with '/'.`);
+        }
+        if (props.image !== undefined && !nonEmpty(props.imageAlt)) throw new Error(`Page '${id}' hero image requires descriptive imageAlt text.`);
+        if (props.imageAlt !== undefined && props.image === undefined) throw new Error(`Page '${id}' hero imageAlt requires an image.`);
+      }
       if (section.component === "guide-collection") {
-        const collectionId = section.props?.collection;
+        const collectionId = props.collection;
         if (!nonEmpty(collectionId) || !Object.hasOwn(collections, collectionId)) throw new Error(`Page '${id}' references an unknown guide collection.`);
+        if (props.variant !== undefined && !["default", "image-cards"].includes(props.variant)) {
+          throw new Error(`Page '${id}' guide-collection variant must be 'default' or 'image-cards'.`);
+        }
       }
     }
   }

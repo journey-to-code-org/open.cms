@@ -69,8 +69,11 @@ function markdown(source) {
   return output.join("\n");
 }
 
-function card(item, label = "READ THE STORY") {
-  return `<article class="guide-card"><h3><a href="./${encodeURIComponent(item.id)}.html">${escape(item.title)}</a></h3><p>${escape(item.description)}</p><span>${escape(label)}</span></article>`;
+function card(item, label = "READ THE STORY", variant = "default") {
+  const image = variant === "image-cards" && item.fields.image
+    ? `<img class="guide-card-image" src="${escape(item.fields.image)}" alt="${escape(item.fields.imageAlt || item.title)}" loading="lazy">`
+    : "";
+  return `<article class="guide-card${image ? " guide-card--image" : ""}">${image}<div class="guide-card-copy"><h3><a href="./${encodeURIComponent(item.id)}.html">${escape(item.title)}</a></h3><p>${escape(item.description)}</p><span>${escape(label)}</span></div></article>`;
 }
 
 function documentHead(site, title = site.config.seo.title, description = site.config.seo.description, canonical = site.config.canonicalUrl) {
@@ -85,12 +88,18 @@ function navigation(site) {
 function renderSection(site, section) {
   const props = section.props || {};
   switch (section.component) {
-    case "hero":
-      return `<section class="home-hero"><p class="eyebrow">${escape(site.config.region.name)}</p><h1>${escape(props.title || site.config.name)}</h1><p>${escape(site.config.description)}</p></section>`;
+    case "hero": {
+      const variant = props.variant || "default";
+      const image = props.image
+        ? `<img class="hero-landscape" src="${escape(props.image)}" alt="${escape(props.imageAlt)}">`
+        : "";
+      return `<section class="home-hero hero-variant-${escape(variant)}">${image}<div class="hero-copy"><p class="hero-kicker">${escape(props.eyebrow || site.config.region.name)}</p><h1>${escape(props.title || site.config.name)}</h1><p>${escape(props.description || site.config.description)}</p></div></section>`;
+    }
     case "guide-collection": {
       const collection = site.collections[props.collection];
       const items = collection.items.map((id) => site.content.find((entry) => entry.id === id)).filter(Boolean);
-      return `<section class="content-section"><p class="eyebrow">${escape(collection.label || "EXPLORE")}</p><h2>${escape(collection.title)}</h2><div class="guide-grid">${items.map((item) => card(item, collection.title)).join("")}</div></section>`;
+      const variant = props.variant || "default";
+      return `<section class="content-section collection-${escape(variant)}"><header class="section-heading"><div><p class="eyebrow">${escape(collection.label || "EXPLORE")}</p><h2>${escape(collection.title)}</h2></div></header><div class="guide-grid guide-grid--${escape(variant)}">${items.map((item) => card(item, collection.title, variant)).join("")}</div></section>`;
     }
     case "feature-gallery":
       return `<section class="content-section"><h2>${escape(props.title || "Places to explore")}</h2><div class="guide-grid">${site.places.map((place) => `<article class="guide-card"><h3>${escape(place.name)}</h3><p>${escape(place.description)}</p></article>`).join("")}</div></section>`;

@@ -3,6 +3,7 @@ layout: article.njk
 title: Deep Creek Without a Boat
 dek: You can still have a very good lake weekend.
 description: You do not need a boat to enjoy Deep Creek Lake. Beaches, paddling, trails, fishing, Wisp, family activities, Oakland, Swallow Falls, and easy no-boat day ideas.
+image: /images/deer-sky-valley.webp
 last_checked: August 12, 2026
 permalink: /deep-creek-without-a-boat.html
 body_class: theme-summer no-boat-page

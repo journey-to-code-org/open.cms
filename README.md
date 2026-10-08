@@ -36,6 +36,14 @@ npm run build -- --site ./sites/my-region
 
 Both `garrett-county` and `demo-region` are supported examples. Package paths, collection references, page component IDs, navigation URLs, GeoJSON places, theme values, and trail snapshots are checked before runtime data is exposed. Manifest entries cannot use traversal paths or symlinks to load files outside the package root. Theme CSS imports and external resource URLs are rejected.
 
+### Site presentation
+
+The engine provides accessible page structure and base styles. Each package supplies theme tokens, optional contained `themeCss`, and allowlisted section variants. Supported home-page variants are `hero: default | landscape` and `guide-collection: default | image-cards`; package config selects them without supplying templates or JavaScript.
+
+Page and content images use root-style public paths such as `/images/gcadv-home.webp`. The file must exist beneath the package's `assets/` directory, so that example maps to `assets/images/gcadv-home.webp`. Traversal, external URLs, protocol-relative URLs, data URLs, and missing assets are rejected. Theme CSS is loaded only from the manifest's contained `themeCss` file; CSS imports, `url(...)`, and `expression(...)` are rejected.
+
+Development and production pages both reference `site.css`. Vite's development route and the static build use the same stylesheet generator: engine styles, validated package theme tokens, then package theme CSS. The interactive explorer receives those same tokens and package CSS from the validated runtime module.
+
 ## Runtime architecture
 
 ```text

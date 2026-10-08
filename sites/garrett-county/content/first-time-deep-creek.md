@@ -3,6 +3,7 @@ layout: article.njk
 title: First Time at Deep Creek Lake? Start Here
 dek: A simple first-trip guide to understanding the lake, choosing what to do, and avoiding the most common planning mistakes.
 description: A practical first-time guide to Deep Creek Lake, Maryland, with lake-area orientation, state park access, Swallow Falls, Wisp, no-boat planning, family and rainy-day links, and how to explore the rest of Garrett County.
+image: /images/herrington-manor.webp
 last_checked: August 19, 2026
 permalink: /first-time-deep-creek.html
 body_class: theme-summer lake-quest-page first-time-page

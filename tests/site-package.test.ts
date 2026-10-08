@@ -3,10 +3,12 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { createServer } from "vite";
 import { parseSiteConfig, parseSiteManifest, validateSitePackageIdentity } from "../src/site-package";
 import { validateCollections, validateNavigation, validatePages, validatePlaces } from "../shared/site-validation.mjs";
 import { loadSitePackage, validateSitePackage } from "../scripts/site-package-fs.mjs";
 import { buildSite } from "../scripts/content-site.js";
+import { buildSiteStylesheet } from "../scripts/site-styles.mjs";
 import { activeSiteFromArgs } from "../scripts/active-site.mjs";
 
 function temporarySite(id = "demo-region"): string {
@@ -58,11 +60,105 @@ test("loaded runtime normalizes both packages and drives static identity and con
     assert.notEqual(garrett.themeCss, demo.themeCss);
     assert.equal(garrett.config.explorer?.eyebrow, "THE GREAT OUTDOORS, CLOSE TO HOME");
     assert.notEqual(demo.config.explorer?.eyebrow, garrett.config.explorer?.eyebrow);
+    const garrettHtml = buildSite(garrett).homeHtml;
+    const demoHtml = buildSite(demo).homeHtml;
+    assert.match(garrettHtml, /hero-variant-landscape/);
+    assert.match(garrettHtml, /src="\/images\/gcadv-home\.webp"/);
+    assert.match(garrettHtml, /guide-grid--image-cards/);
+    assert.match(demoHtml, /hero-variant-default/);
+    assert.doesNotMatch(demoHtml, /Garrett|gcadv-home/);
+    const garrettCss = buildSiteStylesheet(garrett);
+    const demoCss = buildSiteStylesheet(demo);
+    assert.notEqual(garrettCss, demoCss);
+    assert.match(garrettCss, /\.hero-variant-landscape/);
+    assert.match(demoCss, /#352b45/);
   }
   const untrusted = { ...demo, content: [{ ...demo.content[0], body: "<script>alert(1)</script><p onclick=\"run()\">Safe text</p><a href=\"javascript:alert(2)\">Bad link</a>" }] };
   const untrustedPage = buildSite(untrusted).pages.find((page: { name: string }) => page.name === `${demo.content[0].id}.html`).source;
   assert.doesNotMatch(untrustedPage, /<script>alert|onclick=|href="javascript:/);
   assert.match(untrustedPage, /Safe text/);
+});
+
+test("page presentation variants validate and render only contained package assets", () => {
+  const root = temporarySite();
+  try {
+    const manifest = readJson<any>(root, "manifest.json");
+    const pages = readJson<any>(root, manifest.pages);
+    const collections = readJson<any>(root, manifest.collections);
+    pages.home.sections[0].props = {
+      title: "A safe landscape", variant: "landscape", image: "/images/hero.webp", imageAlt: "A wooded ridge",
+    };
+    pages.home.sections[1].props.variant = "image-cards";
+    mkdirSync(path.join(root, "assets", "images"), { recursive: true });
+    writeFileSync(path.join(root, "assets", "images", "hero.webp"), "fixture image bytes");
+    writeJson(root, manifest.pages, pages);
+    assert.equal(validatePages(pages, collections), pages);
+    assert.doesNotThrow(() => validateSitePackage(root));
+    const site = loadSitePackage(root);
+    const home = buildSite(site).homeHtml;
+    assert.match(home, /hero-variant-landscape/);
+    assert.match(home, /src="\/images\/hero\.webp" alt="A wooded ridge"/);
+    assert.match(home, /guide-grid--image-cards/);
+
+    rmSync(path.join(root, "assets", "images", "hero.webp"));
+    assert.throws(() => loadSitePackage(root), /missing package asset '\/images\/hero\.webp'/);
+  } finally { rmSync(path.dirname(root), { recursive: true, force: true }); }
+});
+
+test("page variants and unsafe hero asset references are rejected", () => {
+  const root = path.resolve("sites/demo-region");
+  const pages = readJson<any>(root, "pages.json");
+  const collections = readJson<any>(root, "collections.json");
+  const original = pages.home.sections[0].props;
+  for (const image of ["../secret.jpg", "https://example.com/image.jpg", "//example.com/image.jpg", "javascript:alert(1)", "data:image/png;base64,AA==", "/images/%2e%2e/secret.jpg"]) {
+    pages.home.sections[0].props = { title: "Test", image, imageAlt: "Image" };
+    assert.throws(() => validatePages(pages, collections), /safe package asset path/);
+  }
+  pages.home.sections[0].props = { ...original, variant: "arbitrary-template" };
+  assert.throws(() => validatePages(pages, collections), /hero variant must/);
+  pages.home.sections[0].props = original;
+  pages.home.sections[1].props.variant = "external-renderer";
+  assert.throws(() => validatePages(pages, collections), /guide-collection variant must/);
+});
+
+test("Vite dev pages and stylesheet use the production package presentation pipeline", {
+  skip: !existsSync(path.resolve("sites/garrett-county")),
+}, async () => {
+  const sitePath = path.resolve("sites/garrett-county");
+  const originalSite = process.env.OPEN_CMS_SITE;
+  let server: Awaited<ReturnType<typeof createServer>> | undefined;
+  try {
+    process.env.OPEN_CMS_SITE = sitePath;
+    server = await createServer({
+      configFile: path.resolve("vite.config.mjs"),
+      server: { host: "127.0.0.1", port: 0, strictPort: false },
+    });
+    await server.listen();
+    const address = server.httpServer.address();
+    assert.ok(address && typeof address === "object");
+    const origin = "http://127.0.0.1:" + address.port;
+    const [homeResponse, articleResponse, cssResponse, imageResponse] = await Promise.all([
+      fetch(origin), fetch(origin + "/swallow-falls.html"), fetch(origin + "/site.css"), fetch(origin + "/images/gcadv-home.webp"),
+    ]);
+    assert.equal(homeResponse.status, 200);
+    assert.equal(articleResponse.status, 200);
+    assert.equal(cssResponse.status, 200);
+    assert.equal(imageResponse.status, 200);
+    const [home, article, css] = await Promise.all([homeResponse.text(), articleResponse.text(), cssResponse.text()]);
+    assert.match(home, /Garrett County Adventures/);
+    assert.match(home, /hero-variant-landscape/);
+    assert.match(home, /src="\/images\/gcadv-home\.webp"/);
+    assert.match(home, /href="\.\/site\.css"/);
+    assert.match(home, /Swallow Falls/);
+    assert.match(article, /href="\.\/site\.css"/);
+    assert.match(css, /--cms-accent:#c4973b/);
+    assert.match(css, /\.hero-variant-landscape/);
+    assert.equal(css, buildSiteStylesheet(loadSitePackage(sitePath)));
+  } finally {
+    if (server) await server.close();
+    if (originalSite === undefined) delete process.env.OPEN_CMS_SITE;
+    else process.env.OPEN_CMS_SITE = originalSite;
+  }
 });
 
 test("active-site arguments accept package paths outside the engine checkout", () => {

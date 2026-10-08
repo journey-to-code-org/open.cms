@@ -8,12 +8,34 @@ import {
   validatePlaces,
   validateSiteConfig,
   validateSiteIdentity,
+  validatePublicAssetPath,
 } from "../shared/site-validation.mjs";
 
 const pathInside = (root, candidate) => {
   const relative = path.relative(root, candidate);
   return relative === "" || (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`));
 };
+
+function validateAssetReference(value, assetsRoot, context) {
+  if (!validatePublicAssetPath(value)) throw new Error(`${context} must be a safe package asset path beginning with '/'.`);
+  const candidate = path.resolve(assetsRoot, ...value.slice(1).split("/"));
+  const realRoot = fs.realpathSync(assetsRoot);
+  if (!pathInside(assetsRoot, candidate) || !fs.existsSync(candidate)) throw new Error(`${context} references missing package asset '${value}'.`);
+  if (!pathInside(realRoot, fs.realpathSync(candidate))) throw new Error(`${context} package asset '${value}' escapes the package assets directory.`);
+  if (!fs.statSync(candidate).isFile()) throw new Error(`${context} package asset '${value}' must be a file.`);
+}
+
+function validatePageAndContentAssets(pages, content, assetsRoot) {
+  validatePackageTree(assetsRoot);
+  for (const [pageId, page] of Object.entries(pages)) for (const [sectionIndex, section] of page.sections.entries()) {
+    if (section.component === "hero" && section.props?.image) {
+      validateAssetReference(section.props.image, assetsRoot, `Page '${pageId}' hero image`);
+    }
+  }
+  for (const item of content) if (item.fields.image) {
+    validateAssetReference(item.fields.image, assetsRoot, `Content '${item.id}' image`);
+  }
+}
 
 export function resolvePackagePaths(manifest, packageRoot) {
   validateManifestData(manifest);
@@ -48,11 +70,11 @@ export function validateSitePackage(packageRoot) {
   const site = validateSiteConfig(readJson(paths.site));
   validateSiteIdentity(site, manifest);
   validatePlaces(readJson(paths.places));
-  const contentIds = new Set(fs.readdirSync(paths.content)
-    .filter((name) => name.endsWith(".md"))
-    .map((name) => path.basename(name, ".md")));
+  const content = readContent(paths.content);
+  const contentIds = new Set(content.map((item) => item.id));
   const collections = validateCollections(readJson(paths.collections), contentIds);
-  validatePages(readJson(paths.pages), collections);
+  const pages = validatePages(readJson(paths.pages), collections);
+  validatePageAndContentAssets(pages, content, paths.assets);
   return { manifest, site };
 }
 
@@ -128,7 +150,6 @@ export function loadSitePackage(packagePath) {
       return item;
     });
   }
-  validatePackageTree(paths.assets);
   const themeCss = paths.themeCss ? fs.readFileSync(paths.themeCss, "utf8") : "";
   if (/@import\b|\burl\s*\(|\bexpression\s*\(/i.test(themeCss)) {
     throw new Error("Site theme CSS cannot import styles or reference external resources.");

@@ -4,10 +4,10 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { loadSitePackage } from "./scripts/site-package-fs.mjs";
+import { buildSiteStylesheet, buildSiteThemeCss } from "./scripts/site-styles.mjs";
 import { defineConfig, loadEnv } from "vite";
 
 const require = createRequire(import.meta.url);
-const sass = require("sass");
 const { buildSite } = require("./scripts/content-site");
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -57,20 +57,25 @@ function sitePlugin(command, environment, loadedSite) {
       return `export default ${JSON.stringify({
         manifest: loadedSite.manifest, config: loadedSite.config, navigation: loadedSite.navigation,
         pages: loadedSite.pages, collections: loadedSite.collections, places: loadedSite.places,
-        trails: loadedSite.trails, map: loadedSite.map, theme: loadedSite.theme, themeCss: loadedSite.themeCss,
+        trails: loadedSite.trails, map: loadedSite.map, theme: loadedSite.theme, themeCss: buildSiteThemeCss(loadedSite),
         bounds: loadedSite.config.region.bounds,
       })};`;
     },
     transformIndexHtml(html, context) {
       const site = getGenerated();
-      const devHtml = (value) => command === "serve" ? value.replaceAll("./site.css", "./src/static-site.scss") : value;
-      if (context.path === "/" || context.path.endsWith("index.html")) return devHtml(site.homeHtml);
-      if (context.path.endsWith("explore.html")) return devHtml(site.exploreHtml);
+      if (context.path === "/" || context.path.endsWith("index.html")) return site.homeHtml;
+      if (context.path.endsWith("explore.html")) return site.exploreHtml;
       return html;
     },
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
         const pathname = new URL(request.url, "http://localhost").pathname;
+        if (pathname === "/site.css") {
+          response.setHeader("Content-Type", "text/css; charset=utf-8");
+          response.setHeader("Cache-Control", "no-store");
+          response.end(buildSiteStylesheet(loadedSite));
+          return;
+        }
         if (pathname === "/service-worker.js") {
           response.setHeader("Content-Type", "text/javascript; charset=utf-8");
           response.setHeader("Cache-Control", "no-store");
@@ -113,7 +118,7 @@ self.addEventListener("activate", event => event.waitUntil((async () => {
         if (!page) return next();
         response.setHeader("Content-Type", page.name.endsWith(".xml") ? "application/xml" :
           page.name.endsWith(".txt") ? "text/plain; charset=utf-8" : "text/html; charset=utf-8");
-        response.end(page.source.replaceAll("./site.css", "./src/static-site.scss"));
+        response.end(page.source);
       });
     },
     closeBundle() {
@@ -124,9 +129,7 @@ self.addEventListener("activate", event => event.waitUntil((async () => {
         fs.mkdirSync(path.dirname(destination), { recursive: true });
         fs.writeFileSync(destination, page.source);
       }
-      fs.writeFileSync(path.join(DIST, "site.css"),
-        sass.compile(path.join(ROOT, "src", "static-site.scss"), { style: "compressed" }).css);
-      fs.appendFileSync(path.join(DIST, "site.css"), `\n:root{--cms-accent:${loadedSite.theme.accent};--page:${loadedSite.theme.background};--ink:${loadedSite.theme.text};--leaf:${loadedSite.theme.accent};--gold:${loadedSite.theme.accent};${loadedSite.theme.fontFamily ? `font-family:${loadedSite.theme.fontFamily};` : ""}}\n${loadedSite.themeCss}`);
+      fs.writeFileSync(path.join(DIST, "site.css"), buildSiteStylesheet(loadedSite));
       fs.copyFileSync(path.join(ROOT, "public", "site.js"), path.join(DIST, "site.js"));
       fs.writeFileSync(path.join(DIST, "manifest.webmanifest"), JSON.stringify(pwaManifest(loadedSite), null, 2));
 

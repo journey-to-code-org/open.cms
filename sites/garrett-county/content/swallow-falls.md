@@ -3,6 +3,7 @@ layout: article.njk
 title: Swallow Falls Is More Than Maryland's Tallest Waterfall
 dek: A Garrett County Adventures guide to Muddy Creek Falls, the old-growth forest, a famous camping trip, and what to know before you go.
 description: A practical local-style guide to Swallow Falls State Park, Muddy Creek Falls, the old-growth forest, trail conditions, history, seasonal tips, and what to know before visiting.
+image: /images/hoye-crest.webp
 last_checked: August 11, 2026
 permalink: /swallow-falls.html
 body_class: theme-summer swallow-page
