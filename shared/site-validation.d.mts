@@ -1,8 +1,13 @@
 export const PAGE_COMPONENTS: Set<string>;
+export const RESERVED_OUTPUT_PATHS: readonly string[];
+export const RESERVED_OUTPUT_DIRECTORIES: readonly string[];
+export function normalizeOutputPath(value: string): string;
+export function routeToOutputName(route: string): string;
+export function validateOutputPathSet(records: Array<{ owner: string; path: string; allowIndex?: boolean }>): string[];
 export function validateManifestData(manifest: unknown): Record<string, unknown>;
 export function validateSiteIdentity(site: unknown, manifest: unknown): unknown;
 export function validateSiteConfig(site: unknown): unknown;
 export function validatePlaces(places: unknown): unknown;
 export function validateCollections(collections: unknown, contentIds: Iterable<string>): unknown;
 export function validatePages(pages: unknown, collections: Record<string, unknown>): unknown;
-export function validateGeneratedOutputPaths(pages: Record<string, unknown>, contentIds: Iterable<string>): unknown;
+export function validateGeneratedOutputPaths(pages: Record<string, unknown>, contentIds: Iterable<string>, assetPaths?: Iterable<string>): unknown;

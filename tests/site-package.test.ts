@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createServer } from "vite";
 import { parseSiteConfig, parseSiteManifest, validateSitePackageIdentity } from "../src/site-package";
-import { validateCollections, validateGeneratedOutputPaths, validateNavigation, validatePages, validatePlaces } from "../shared/site-validation.mjs";
+import { validateCollections, validateGeneratedOutputPaths, validateNavigation, validateOutputPathSet, validatePages, validatePlaces } from "../shared/site-validation.mjs";
 import { loadSitePackage, validateSitePackage } from "../scripts/site-package-fs.mjs";
 import { buildSite } from "../scripts/content-site.js";
 import { buildSiteStylesheet } from "../scripts/site-styles.mjs";
@@ -27,6 +27,7 @@ function writeJson(root: string, file: string, value: unknown): void {
 
 test("pure parsers validate available site configs without filesystem context", () => {
   const ids = ["demo-region", ...(existsSync(path.resolve("sites/garrett-county")) ? ["garrett-county"] : [])];
+  const packageIds = new Map<string, string>();
   for (const id of ids) {
     const root = path.resolve("sites", id);
     const manifest = parseSiteManifest(readJson(root, "manifest.json"));
@@ -34,6 +35,10 @@ test("pure parsers validate available site configs without filesystem context", 
     assert.equal(manifest.format, 1);
     assert.equal(validateSitePackageIdentity(site, manifest).id, manifest.id);
     assert.equal(validateSitePackage(root).manifest.id, manifest.id);
+    const normalizedId = manifest.id.toLocaleLowerCase("en-US");
+    assert.equal(packageIds.has(normalizedId), false, `Duplicate package ID '${manifest.id}' in site fixtures.`);
+    packageIds.set(normalizedId, id);
+    assert.match(manifest.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)/);
   }
 });
 
@@ -136,8 +141,108 @@ test("configured output paths reject reserved files and page or article collisio
   assert.throws(() => validatePages({ home: makePage("/"), malformed: makePage("/about//team") }, collections), /safe absolute route/);
   assert.throws(() => validatePages({ home: makePage("/"), one: makePage("/guides/"), two: makePage("/guides/index.html") }, collections), /collides/);
   assert.throws(() => validatePages({ home: makePage("/"), file: makePage("/about"), child: makePage("/about/team.html") }, collections), /conflicts/);
-  assert.throws(() => validateGeneratedOutputPaths({ ...site.pages, article: makePage("/fern-creek.html") }, site.content.map((item) => item.id)), /collides with page 'article'/);
+  assert.throws(() => validateGeneratedOutputPaths({ ...site.pages, article: makePage("/fern-creek.html") }, site.content.map((item) => item.id)), /collides with Page 'article'/);
   assert.throws(() => validateGeneratedOutputPaths(site.pages, [...site.content.map((item) => item.id), "explore"]), /reserved engine output/);
+  assert.throws(() => validateGeneratedOutputPaths(site.pages, site.content.map((item) => item.id), ["fern-creek.html"]), /collides with Markdown article 'fern-creek'/);
+  assert.throws(() => validateOutputPathSet([
+    { owner: "asset", path: "images/Hero.webp" },
+    { owner: "asset", path: "images/hero.webp" },
+  ]), /case-insensitive path collision/);
+});
+
+test("package assets cannot replace engine files or Vite bundled assets", () => {
+  for (const relative of ["site.css", "site.js", "service-worker.js", "index.html", "explore.html", "assets/app.js"]) {
+    const root = temporarySite();
+    try {
+      const target = path.join(root, "assets", ...relative.split("/"));
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, "collision");
+      assert.throws(() => validateSitePackage(root), new RegExp(`Site package 'demo-region' is invalid:.*(?:${relative.split("/").pop()}|Vite output directory)`));
+    } finally { rmSync(path.dirname(root), { recursive: true, force: true }); }
+  }
+});
+
+test("asset trees reject case-insensitive duplicate relative paths", () => {
+  const root = temporarySite();
+  try {
+    const assets = path.join(root, "assets", "images");
+    mkdirSync(assets, { recursive: true });
+    writeFileSync(path.join(assets, "Hero.webp"), "upper");
+    writeFileSync(path.join(assets, "hero.webp"), "lower");
+    const entries = readdirSync(assets);
+    if (entries.length > 1) assert.throws(() => validateSitePackage(root), /differ only by case/);
+    else assert.throws(() => validateOutputPathSet([
+      { owner: "Package asset", path: "images/Hero.webp" },
+      { owner: "Package asset", path: "images/hero.webp" },
+    ]), /case-insensitive path collision/);
+  } finally { rmSync(path.dirname(root), { recursive: true, force: true }); }
+});
+
+test("content IDs and consumed front matter are safe and package-contained", () => {
+  const root = temporarySite();
+  try {
+    const contentDir = path.join(root, "content");
+    renameSync(path.join(contentDir, "fern-creek.md"), path.join(contentDir, "Fern Creek.md"));
+    assert.throws(() => validateSitePackage(root), /lowercase kebab-case ID/);
+  } finally { rmSync(path.dirname(root), { recursive: true, force: true }); }
+
+  const reservedContentRoot = temporarySite();
+  try {
+    writeFileSync(path.join(reservedContentRoot, "content", "explore.md"), "Reserved article output.");
+    assert.throws(() => validateSitePackage(reservedContentRoot), /Markdown article 'explore'.*reserved engine output/);
+  } finally { rmSync(path.dirname(reservedContentRoot), { recursive: true, force: true }); }
+
+  for (const image of ["/images/missing.webp", "https://example.com/image.webp", "//example.com/image.webp", "/../secret.webp", "data:image/png;base64,AA=="]) {
+    const packageRoot = temporarySite();
+    try {
+      const contentFile = path.join(packageRoot, "content", "fern-creek.md");
+      const content = readFileSync(contentFile, "utf8").replace("title: Fern Creek", `title: Fern Creek\nimage: ${image}\nimageAlt: A safe description`);
+      writeFileSync(contentFile, content);
+      if (image === "/images/missing.webp") assert.throws(() => validateSitePackage(packageRoot), /Content 'fern-creek' image references missing package asset/);
+      else assert.throws(() => validateSitePackage(packageRoot), /Content 'fern-creek' image must be a safe package asset path/);
+    } finally { rmSync(path.dirname(packageRoot), { recursive: true, force: true }); }
+  }
+
+  const safeRoot = temporarySite();
+  try {
+    const imagePath = path.join(safeRoot, "assets", "images", "fern.webp");
+    mkdirSync(path.dirname(imagePath), { recursive: true });
+    writeFileSync(imagePath, "fixture image");
+    const contentFile = path.join(safeRoot, "content", "fern-creek.md");
+    writeFileSync(contentFile, readFileSync(contentFile, "utf8").replace("title: Fern Creek", "title: Fern Creek\nimage: /images/fern.webp\nimageAlt: A creekside trail"));
+    assert.equal(validateSitePackage(safeRoot).manifest.id, "demo-region");
+  } finally { rmSync(path.dirname(safeRoot), { recursive: true, force: true }); }
+});
+
+test("PWA icons must resolve to safe existing package assets", () => {
+  const root = temporarySite();
+  try {
+    const site = readJson<any>(root, "site.json");
+    site.pwa.icons = ["/icons/icon-192.png"];
+    writeJson(root, "site.json", site);
+    assert.throws(() => validateSitePackage(root), /PWA icon references missing package asset/);
+    const icon = path.join(root, "assets", "icons", "icon-192.png");
+    mkdirSync(path.dirname(icon), { recursive: true });
+    writeFileSync(icon, "icon bytes");
+    assert.equal(validateSitePackage(root).manifest.id, "demo-region");
+    site.pwa.icons = ["https://example.com/icon.png"];
+    writeJson(root, "site.json", site);
+    assert.throws(() => validateSitePackage(root), /safe root-style package icon paths/);
+  } finally { rmSync(path.dirname(root), { recursive: true, force: true }); }
+});
+
+test("package and site display identity must agree while package versions remain independent", () => {
+  const root = temporarySite();
+  try {
+    const manifest = readJson<any>(root, "manifest.json");
+    const site = readJson<any>(root, "site.json");
+    manifest.version = "2.4.1-beta.2+build.17";
+    writeJson(root, "manifest.json", manifest);
+    assert.equal(validateSitePackage(root).manifest.version, "2.4.1-beta.2+build.17");
+    site.name = "Another Display Name";
+    writeJson(root, "site.json", site);
+    assert.throws(() => validateSitePackage(root), /Site name must match the manifest name/);
+  } finally { rmSync(path.dirname(root), { recursive: true, force: true }); }
 });
 
 test("page variants and unsafe hero asset references are rejected", () => {
@@ -206,6 +311,8 @@ test("active-site arguments accept package paths outside the engine checkout", (
   try {
     const selected = activeSiteFromArgs(["--site", path.relative(process.cwd(), externalSite)]);
     assert.equal(selected, path.resolve(externalSite));
+    assert.equal(activeSiteFromArgs(["--site", externalSite]), path.resolve(externalSite));
+    assert.equal(validateSitePackage(selected).manifest.id, "demo-region");
     const loaded = loadSitePackage(selected);
     assert.equal(loaded.config.name, "Pine Hollow Field Guide");
     const generated = buildSite(loaded);
@@ -231,6 +338,7 @@ test("manifest rejects unsupported format, invalid ids, and malformed semantic v
     ["format", (x: any) => ({ ...x, format: 2 }), /format 1/],
     ["id", (x: any) => ({ ...x, id: "Demo_Region" }), /kebab-case/],
     ["version", (x: any) => ({ ...x, version: "1.0" }), /semantic version/],
+    ["version-prerelease", (x: any) => ({ ...x, version: "1.0.0-01" }), /semantic version/],
   ] as const) {
     const root = temporarySite();
     try {

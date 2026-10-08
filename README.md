@@ -2,7 +2,7 @@
 
 **open.cms is an open-source, place-based CMS and static publishing engine for regional guides, local discovery sites, outdoor and tourism projects, maps, and trails.**
 
-Version 0.2.0 makes version 1 site packages the source of truth for development and static builds. The Garrett County fixture and the fictional Pine Hollow demo use the same engine and can be built independently.
+Version 0.2.1 stabilizes the version 1 site-package contract used by development and static builds. The Garrett County fixture and the fictional Pine Hollow demo use the same engine and can be built independently.
 
 ## Quick start
 
@@ -43,6 +43,16 @@ The engine provides accessible page structure and base styles. Each package supp
 Page and content images use root-style public paths such as `/images/gcadv-home.webp`. The file must exist beneath the package's `assets/` directory, so that example maps to `assets/images/gcadv-home.webp`. Traversal, external URLs, protocol-relative URLs, data URLs, and missing assets are rejected. Theme CSS is loaded only from the manifest's contained `themeCss` file; CSS imports, `url(...)`, and `expression(...)` are rejected.
 
 Development and production pages both reference `site.css`. Vite's development route and the static build use the same stylesheet generator: engine styles, validated package theme tokens, then package theme CSS. The interactive explorer receives those same tokens and package CSS from the validated runtime module.
+
+### Stable package format 1 constraints
+
+- Engine output names are reserved: `index.html`, `explore.html`, `site.css`, `site.js`, `manifest.webmanifest`, `service-worker.js`, `map-config.json`, `sitemap.xml`, and `robots.txt`. Package assets are copied from `assets/` to the output root, so files with those relative names are rejected. `assets/assets/` is reserved for Vite's bundled output. Configured routes, Markdown article files, and package assets must not collide, including case-only and file-versus-directory conflicts.
+- Public image and icon references use root-style paths such as `/images/hero.webp`, mapped to `assets/images/hero.webp`. References must resolve to files inside the package. Package asset paths cannot use symlinks, and case-ambiguous paths are rejected.
+- Markdown content filenames use lowercase kebab-case IDs, such as `first-time-deep-creek.md`. IDs become output filenames and are rejected if they are unsafe or collide with reserved/generated pages.
+- The runtime consumes `title`, `description` (or `summary`), `image`, and `imageAlt` from Markdown front matter. `image` must reference an existing package asset. For image cards, omitted `imageAlt` falls back to the content title. Unused metadata is not part of runtime validation. `seo.image` is reserved and currently unused.
+- `manifest.json` and `site.json` IDs and display names must match. The manifest version must be semantic version syntax; package versions are independent from the open.cms engine version.
+- Optional `themeCss` must remain inside the package and cannot contain `@import`, `url(...)`, or `expression(...)`. Package imagery should use validated page, content, or PWA icon configuration; packages do not supply templates or JavaScript.
+- Packages can live outside this repository. For example, from the engine checkout use `npm run build -- --site ../my-private-site` or `npm run validate:site -- ../my-private-site`.
 
 ## Runtime architecture
 
@@ -87,12 +97,13 @@ npm run build -- --site ./sites/garrett-county
 npm run build -- --site ./sites/demo-region
 ```
 
-See [the 0.2.0 runtime architecture](docs/architecture/v0.2-package-runtime.md) and [the extraction audit](docs/architecture/site-extraction-audit.md) for implementation details and remaining work.
+See [the 0.2.0 runtime architecture](docs/architecture/v0.2-package-runtime.md), [the stable package format 1 contract](docs/architecture/site-package-v1.md), and [the extraction audit](docs/architecture/site-extraction-audit.md) for implementation details and remaining work.
 
 ## Roadmap
 
 - **0.1.x:** package specification and migration foundation.
-- **0.2.x:** package-driven runtime and static builds.
+- **0.2.0:** package-driven runtime and static builds.
+- **0.2.1:** site-package validation and build-predictability hardening.
 - **0.3.x:** possible CMS editing/admin work after the package runtime is established; it is not part of 0.2.0.
 
 ## License

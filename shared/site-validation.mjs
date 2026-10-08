@@ -1,4 +1,9 @@
 export const PAGE_COMPONENTS = new Set(["hero", "guide-collection", "feature-gallery", "install-prompt"]);
+export const RESERVED_OUTPUT_PATHS = Object.freeze([
+  "index.html", "explore.html", "site.css", "site.js", "manifest.webmanifest",
+  "service-worker.js", "map-config.json", "sitemap.xml", "robots.txt",
+]);
+export const RESERVED_OUTPUT_DIRECTORIES = Object.freeze(["assets"]);
 const MANIFEST_PATHS = ["site", "map", "navigation", "collections", "pages", "content", "places", "trails", "theme", "assets"];
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const nonEmpty = (value) => typeof value === "string" && value.trim().length > 0;
@@ -8,12 +13,65 @@ export function validatePublicAssetPath(value) {
     value.slice(1).split("/").every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part) && part !== "." && part !== "..");
 }
 
+export function normalizeOutputPath(value) {
+  if (typeof value !== "string" || value.length === 0 || value.includes("\\") || value.startsWith("/")) {
+    throw new Error(`Output path '${String(value)}' must be a non-empty relative path using forward slashes.`);
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error(`Output path '${value}' contains an unsafe path segment.`);
+  }
+  return parts.join("/");
+}
+
+export function routeToOutputName(route) {
+  if (route === "/") return "index.html";
+  return route.endsWith("/") ? `${route.slice(1)}index.html` : route.slice(1);
+}
+
+export function validateOutputPathSet(records) {
+  const normalized = records.map((record) => ({
+    ...record,
+    path: normalizeOutputPath(record.path),
+    key: normalizeOutputPath(record.path).toLocaleLowerCase("en-US"),
+  }));
+  for (const record of normalized) {
+    const blocked = RESERVED_OUTPUT_PATHS.find((reserved) => {
+      const key = reserved.toLocaleLowerCase("en-US");
+      return record.key === key || record.key.startsWith(`${key}/`) || key.startsWith(`${record.key}/`);
+    });
+    if (blocked && !(record.allowIndex && record.key === "index.html")) {
+      throw new Error(`${record.owner} output '${record.path}' conflicts with reserved engine output '${blocked}'.`);
+    }
+    const blockedDirectory = RESERVED_OUTPUT_DIRECTORIES.find((directory) => {
+      const key = directory.toLocaleLowerCase("en-US");
+      return record.key === key || record.key.startsWith(`${key}/`) || key.startsWith(`${record.key}/`);
+    });
+    if (blockedDirectory) throw new Error(`${record.owner} output '${record.path}' conflicts with Vite output directory '${blockedDirectory}/'.`);
+  }
+  const seen = new Map();
+  for (const record of normalized) {
+    const previous = seen.get(record.key);
+    if (previous) throw new Error(`${record.owner} output '${record.path}' collides with ${previous.owner} output '${previous.path}' (case-insensitive path collision).`);
+    seen.set(record.key, record);
+  }
+  for (const record of normalized) {
+    const parts = record.key.split("/");
+    for (let index = 1; index < parts.length; index++) {
+      const previous = seen.get(parts.slice(0, index).join("/"));
+      if (previous) throw new Error(`${record.owner} output '${record.path}' conflicts with ${previous.owner} output '${previous.path}' (file/directory collision).`);
+    }
+  }
+  return normalized.map(({ path }) => path);
+}
+
 export function validateManifestData(manifest) {
   if (!isRecord(manifest)) throw new Error("Manifest must be an object.");
   if (manifest.format !== 1) throw new Error("Unsupported manifest format; expected format 1.");
   if (typeof manifest.id !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(manifest.id)) throw new Error("Manifest id must be a kebab-case package id.");
   if (!nonEmpty(manifest.name)) throw new Error("Manifest name must not be empty.");
-  if (typeof manifest.version !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(manifest.version)) {
+  const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+  if (typeof manifest.version !== "string" || !semver.test(manifest.version)) {
     throw new Error("Manifest version must be a semantic version (for example, 1.0.0).");
   }
   for (const key of MANIFEST_PATHS) {
@@ -33,6 +91,7 @@ export function validateManifestData(manifest) {
 
 export function validateSiteIdentity(site, manifest) {
   if (!isRecord(site) || !isRecord(manifest) || site.id !== manifest.id) throw new Error("Site id must match the manifest id.");
+  if (site.name !== manifest.name) throw new Error("Site name must match the manifest name.");
   return site;
 }
 
@@ -58,8 +117,8 @@ export function validateSiteConfig(site) {
   if (!isRecord(site.seo) || !nonEmpty(site.seo.title) || !nonEmpty(site.seo.description)) throw new Error("SEO title and description must not be empty.");
   if (!isRecord(site.pwa) || !nonEmpty(site.pwa.name) || !nonEmpty(site.pwa.shortName) || !nonEmpty(site.pwa.description) ||
       !/^#[0-9a-f]{6}$/i.test(site.pwa.themeColor) || !/^#[0-9a-f]{6}$/i.test(site.pwa.backgroundColor) || !Array.isArray(site.pwa.icons) ||
-      !site.pwa.icons.every((icon) => nonEmpty(icon) && /^(?:\/(?!\/)|\.\/)[^\\\s<>:"|?*]+$/i.test(icon) && !icon.split("/").includes(".."))) {
-    throw new Error("PWA configuration requires identity, hex colors, and safe package-relative icon paths.");
+      !site.pwa.icons.every((icon) => validatePublicAssetPath(icon))) {
+    throw new Error("PWA configuration requires identity, hex colors, and safe root-style package icon paths.");
   }
   if (!isRecord(site.theme) || ![site.theme.accent, site.theme.background, site.theme.text].every((color) =>
     typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) ||
@@ -179,63 +238,21 @@ export function validatePages(pages, collections) {
   return pages;
 }
 
-const RESERVED_OUTPUTS = new Set([
-  "index.html", "explore.html", "site.css", "site.js", "manifest.webmanifest",
-  "service-worker.js", "map-config.json", "sitemap.xml", "robots.txt",
-]);
-
-function outputNameForRoute(route) {
-  if (route === "/") return "index.html";
-  return route.endsWith("/") ? `${route.slice(1)}index.html` : route.slice(1);
-}
-
 function validatePageOutputPaths(pages, contentIds = []) {
   const outputs = [];
   for (const [id, page] of Object.entries(pages)) {
-    const output = outputNameForRoute(page.route);
-    outputs.push({ id: `page '${id}'`, output, allowsIndex: page.route === "/" });
+    outputs.push({ owner: `Page '${id}'`, path: routeToOutputName(page.route), allowIndex: page.route === "/" });
   }
-  for (const id of contentIds) outputs.push({ id: `Markdown article '${id}'`, output: `${encodeURIComponent(id)}.html`, allowsIndex: false });
-
-  for (const record of outputs) {
-    if (RESERVED_OUTPUTS.has(record.output.toLowerCase()) && !(record.allowsIndex && record.output === "index.html")) {
-      throw new Error(`${record.id} output '${record.output}' conflicts with reserved engine output.`);
-    }
-    if (record.output.toLowerCase() === "assets" || record.output.toLowerCase().startsWith("assets/")) {
-      throw new Error(`${record.id} output '${record.output}' conflicts with Vite output assets.`);
-    }
-  }
-
-  const seen = new Map();
-  for (const record of outputs) {
-    const key = record.output.toLowerCase();
-    const previous = seen.get(key);
-    if (previous) throw new Error(`${record.id} output '${record.output}' collides with ${previous.id} output '${previous.output}'.`);
-    seen.set(key, record);
-  }
-  for (const record of outputs) {
-    const parts = record.output.toLowerCase().split("/");
-    for (let index = 1; index < parts.length; index++) {
-      const ancestor = parts.slice(0, index).join("/");
-      if (seen.has(ancestor)) {
-        const previous = seen.get(ancestor);
-        throw new Error(`${record.id} output '${record.output}' conflicts with ${previous.id} output '${previous.output}'.`);
-      }
-    }
-  }
-  for (const [id, page] of Object.entries(pages)) {
-    const output = outputNameForRoute(page.route).toLowerCase();
-    if ([...RESERVED_OUTPUTS].some((reserved) => {
-      const reservedPath = reserved.toLowerCase();
-      return reservedPath.startsWith(`${output}/`) || output.startsWith(`${reservedPath}/`);
-    })) {
-      throw new Error(`Page '${id}' route '${page.route}' conflicts with a reserved engine output.`);
-    }
-  }
+  for (const id of contentIds) outputs.push({ owner: `Markdown article '${id}'`, path: `${encodeURIComponent(id)}.html` });
+  validateOutputPathSet(outputs);
 }
 
-export function validateGeneratedOutputPaths(pages, contentIds) {
+export function validateGeneratedOutputPaths(pages, contentIds, assetPaths = []) {
   if (!isRecord(pages)) throw new Error("Output path validation requires validated pages.");
-  validatePageOutputPaths(pages, contentIds);
+  const outputs = [];
+  for (const [id, page] of Object.entries(pages)) outputs.push({ owner: `Page '${id}'`, path: routeToOutputName(page.route), allowIndex: page.route === "/" });
+  for (const id of contentIds) outputs.push({ owner: `Markdown article '${id}'`, path: `${encodeURIComponent(id)}.html` });
+  for (const file of assetPaths) outputs.push({ owner: `Package asset '${file}'`, path: file });
+  validateOutputPathSet(outputs);
   return pages;
 }

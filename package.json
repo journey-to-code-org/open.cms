@@ -1,6 +1,6 @@
 {
   "name": "open-cms",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A place-based CMS and static publishing engine for regional guides and discovery sites.",
   "scripts": {
     "build": "node scripts/build.js",
