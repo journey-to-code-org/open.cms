@@ -1,1 +1,32 @@
-:root { --cms-accent: #df8952; --cms-background: #f5f2e8; --cms-text: #263c32; }
+:root {
+  --cms-accent: #df8952; --cms-background: #f5f2e8; --cms-text: #263c32;
+  --cms-font: Georgia, "Times New Roman", serif; --cms-heading-font: Georgia, "Times New Roman", serif;
+  --page: #f5f2e8; --ink: #263c32; --leaf: #a84f28; --gold: #df8952;
+  --surface: #fffdf7; --muted: #665e55; --line: #d8c8b7; --focus: #9c3f20;
+  font-family: var(--cms-font);
+}
+h1, h2, h3, .brand { font-family: var(--cms-heading-font); font-weight: 600; }
+.site-header { background: #fffdf7; }
+.site-brand { color: #352b45; font-family: var(--cms-heading-font); font-size: 1.1rem; }
+.site-nav a { color: #72506c; font-family: var(--cms-font); }
+.home-hero.hero-variant-default { min-height: 25rem; background: linear-gradient(135deg, #352b45, #72506c 68%, #df8952); }
+.home-hero.hero-variant-default::before { background: radial-gradient(ellipse at 80% 15%, #fff1d533, transparent 35%), linear-gradient(90deg, #352b45d9, #352b4533); }
+.hero-copy { max-width: 70rem; }
+.home-hero h1 { max-width: 13ch; font-family: var(--cms-heading-font); font-size: clamp(2.8rem, 7vw, 5.5rem); font-weight: 500; letter-spacing: -.04em; }
+.hero-kicker { color: #ffe3c7; }
+.content-section { max-width: 70rem; }
+.section-heading h2 { color: #352b45; font-family: var(--cms-heading-font); font-weight: 500; }
+.section-heading .eyebrow, .eyebrow { color: #a84f28; }
+.guide-card { border: 1px solid #d8c8b7; border-radius: 1.1rem; box-shadow: 0 10px 30px #352b4518; }
+.guide-card-copy { padding: 1.5rem; }
+.guide-card h3 { color: #352b45; font-family: var(--cms-heading-font); font-weight: 500; }
+.guide-card h3 a { color: #352b45; text-decoration-color: #df8952; text-decoration-thickness: 2px; }
+.guide-card span { color: #a84f28; }
+.site-footer { background: #352b45; color: #f5f2e8; }
+.site-footer a { color: #fff; }
+.topbar { background: #352b45; }
+.brand { color: #fff; }
+.brand-subtitle { color: #f1d8c7; }
+.sidebar { background: #f5f2e8; }
+.tabs button[aria-pressed='true'], .button.primary { border-color: #a84f28; background: #a84f28; }
+@media (max-width: 42rem) { .home-hero { min-height: 22rem; } .guide-card { border-radius: .75rem; } }

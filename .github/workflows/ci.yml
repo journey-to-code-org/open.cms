@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Generate Rust/WASM bindings
+        run: npm run build:wasm
+      - name: Run tests
+        run: npm test
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Run Rust tests
+        run: npm run test:rust
+      - name: Validate Pine Hollow package
+        run: npm run validate:site -- sites/demo-region
+      - name: Build Pine Hollow package
+        run: npm run build -- --site ./sites/demo-region
+      - name: Validate Garrett County package
+        run: npm run validate:site -- sites/garrett-county
+      - name: Build Garrett County package
+        run: npm run build -- --site ./sites/garrett-county

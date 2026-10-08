@@ -3,6 +3,14 @@
   "name": "Pine Hollow Field Guide",
   "shortName": "Pine Hollow",
   "description": "A fictional guide to the Pine Hollow region.",
+  "explorer": {
+    "headerCaption": "Pine Hollow field guide",
+    "mapCaption": "Find a new corner of Pine Hollow.",
+    "eyebrow": "A FIELD GUIDE TO PINE HOLLOW",
+    "heading": "What would you like to find?",
+    "description": "Explore local places, trails, and stories at your own pace.",
+    "searchPlaceholder": "Search places or activities"
+  },
   "canonicalUrl": "https://pine-hollow.example",
   "locale": "en-US",
   "publisher": {
@@ -39,6 +47,6 @@
     "accent": "#df8952",
     "background": "#f5f2e8",
     "text": "#263c32",
-    "fontFamily": "Georgia, serif"
+    "fontFamily": "Georgia, \"Times New Roman\", serif"
   }
 }

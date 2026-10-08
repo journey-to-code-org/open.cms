@@ -1,14 +1,77 @@
 export const PAGE_COMPONENTS = new Set(["hero", "guide-collection", "feature-gallery", "install-prompt"]);
+export const RESERVED_OUTPUT_PATHS = Object.freeze([
+  "index.html", "explore.html", "site.css", "site.js", "manifest.webmanifest",
+  "service-worker.js", "map-config.json", "sitemap.xml", "robots.txt",
+]);
+export const RESERVED_OUTPUT_DIRECTORIES = Object.freeze(["assets"]);
 const MANIFEST_PATHS = ["site", "map", "navigation", "collections", "pages", "content", "places", "trails", "theme", "assets"];
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 const nonEmpty = (value) => typeof value === "string" && value.trim().length > 0;
+export function validatePublicAssetPath(value) {
+  return typeof value === "string" && value.startsWith("/") && !value.startsWith("//") &&
+    !value.includes("\\") && value.split("/").length > 2 &&
+    value.slice(1).split("/").every((part) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(part) && part !== "." && part !== "..");
+}
+
+export function normalizeOutputPath(value) {
+  if (typeof value !== "string" || value.length === 0 || value.includes("\\") || value.startsWith("/")) {
+    throw new Error(`Output path '${String(value)}' must be a non-empty relative path using forward slashes.`);
+  }
+  const parts = value.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error(`Output path '${value}' contains an unsafe path segment.`);
+  }
+  return parts.join("/");
+}
+
+export function routeToOutputName(route) {
+  if (route === "/") return "index.html";
+  return route.endsWith("/") ? `${route.slice(1)}index.html` : route.slice(1);
+}
+
+export function validateOutputPathSet(records) {
+  const normalized = records.map((record) => ({
+    ...record,
+    path: normalizeOutputPath(record.path),
+    key: normalizeOutputPath(record.path).toLocaleLowerCase("en-US"),
+  }));
+  for (const record of normalized) {
+    const blocked = RESERVED_OUTPUT_PATHS.find((reserved) => {
+      const key = reserved.toLocaleLowerCase("en-US");
+      return record.key === key || record.key.startsWith(`${key}/`) || key.startsWith(`${record.key}/`);
+    });
+    if (blocked && !(record.allowIndex && record.key === "index.html")) {
+      throw new Error(`${record.owner} output '${record.path}' conflicts with reserved engine output '${blocked}'.`);
+    }
+    const blockedDirectory = RESERVED_OUTPUT_DIRECTORIES.find((directory) => {
+      const key = directory.toLocaleLowerCase("en-US");
+      return record.key === key || record.key.startsWith(`${key}/`) || key.startsWith(`${record.key}/`);
+    });
+    if (blockedDirectory) throw new Error(`${record.owner} output '${record.path}' conflicts with Vite output directory '${blockedDirectory}/'.`);
+  }
+  const seen = new Map();
+  for (const record of normalized) {
+    const previous = seen.get(record.key);
+    if (previous) throw new Error(`${record.owner} output '${record.path}' collides with ${previous.owner} output '${previous.path}' (case-insensitive path collision).`);
+    seen.set(record.key, record);
+  }
+  for (const record of normalized) {
+    const parts = record.key.split("/");
+    for (let index = 1; index < parts.length; index++) {
+      const previous = seen.get(parts.slice(0, index).join("/"));
+      if (previous) throw new Error(`${record.owner} output '${record.path}' conflicts with ${previous.owner} output '${previous.path}' (file/directory collision).`);
+    }
+  }
+  return normalized.map(({ path }) => path);
+}
 
 export function validateManifestData(manifest) {
   if (!isRecord(manifest)) throw new Error("Manifest must be an object.");
   if (manifest.format !== 1) throw new Error("Unsupported manifest format; expected format 1.");
   if (typeof manifest.id !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(manifest.id)) throw new Error("Manifest id must be a kebab-case package id.");
   if (!nonEmpty(manifest.name)) throw new Error("Manifest name must not be empty.");
-  if (typeof manifest.version !== "string" || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(manifest.version)) {
+  const semver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+  if (typeof manifest.version !== "string" || !semver.test(manifest.version)) {
     throw new Error("Manifest version must be a semantic version (for example, 1.0.0).");
   }
   for (const key of MANIFEST_PATHS) {
@@ -18,11 +81,17 @@ export function validateManifestData(manifest) {
       throw new Error(`Package path '${key}' must be a non-empty safe relative path using forward slashes.`);
     }
   }
+  if (manifest.themeCss !== undefined && (typeof manifest.themeCss !== "string" || manifest.themeCss.trim() === "" ||
+      manifest.themeCss.includes("\\") || manifest.themeCss.startsWith("/") || /^[A-Za-z]:/.test(manifest.themeCss) ||
+      manifest.themeCss.split("/").includes(".."))) {
+    throw new Error("Package path 'themeCss' must be a safe relative path using forward slashes.");
+  }
   return manifest;
 }
 
 export function validateSiteIdentity(site, manifest) {
   if (!isRecord(site) || !isRecord(manifest) || site.id !== manifest.id) throw new Error("Site id must match the manifest id.");
+  if (site.name !== manifest.name) throw new Error("Site name must match the manifest name.");
   return site;
 }
 
@@ -32,6 +101,9 @@ export function validateSiteConfig(site) {
   if (!nonEmpty(site.name)) throw new Error("Site name must not be empty.");
   if (!nonEmpty(site.description)) throw new Error("Site description must not be empty.");
   if (!nonEmpty(site.locale)) throw new Error("Site locale must not be empty.");
+  if (site.canonicalUrl !== undefined && (typeof site.canonicalUrl !== "string" || !/^https?:\/\/[^\s<>"']+$/i.test(site.canonicalUrl))) {
+    throw new Error("Canonical URL must be an HTTP or HTTPS URL.");
+  }
   if (!isRecord(site.region) || !nonEmpty(site.region.name)) throw new Error("Region name must not be empty.");
   const bounds = site.region.bounds;
   if (!Array.isArray(bounds) || bounds.length !== 2 || !bounds.every((pair) =>
@@ -44,12 +116,32 @@ export function validateSiteConfig(site) {
   }
   if (!isRecord(site.seo) || !nonEmpty(site.seo.title) || !nonEmpty(site.seo.description)) throw new Error("SEO title and description must not be empty.");
   if (!isRecord(site.pwa) || !nonEmpty(site.pwa.name) || !nonEmpty(site.pwa.shortName) || !nonEmpty(site.pwa.description) ||
-      !nonEmpty(site.pwa.themeColor) || !nonEmpty(site.pwa.backgroundColor) || !Array.isArray(site.pwa.icons) ||
-      !site.pwa.icons.every(nonEmpty)) throw new Error("PWA configuration requires identity, colors, and a string icon list.");
-  if (!isRecord(site.theme) || !nonEmpty(site.theme.accent) || !nonEmpty(site.theme.background) || !nonEmpty(site.theme.text)) {
+      !/^#[0-9a-f]{6}$/i.test(site.pwa.themeColor) || !/^#[0-9a-f]{6}$/i.test(site.pwa.backgroundColor) || !Array.isArray(site.pwa.icons) ||
+      !site.pwa.icons.every((icon) => validatePublicAssetPath(icon))) {
+    throw new Error("PWA configuration requires identity, hex colors, and safe root-style package icon paths.");
+  }
+  if (!isRecord(site.theme) || ![site.theme.accent, site.theme.background, site.theme.text].every((color) =>
+    typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) ||
+      (site.theme.fontFamily !== undefined && (typeof site.theme.fontFamily !== "string" || !/^[\w\s,"'-]{1,120}$/.test(site.theme.fontFamily)))) {
     throw new Error("Theme configuration requires accent, background, and text values.");
   }
+  if (site.explorer !== undefined && (!isRecord(site.explorer) ||
+      !["headerCaption", "mapCaption", "eyebrow", "heading", "description", "searchPlaceholder"].every((key) =>
+        site.explorer[key] === undefined || nonEmpty(site.explorer[key])))) {
+    throw new Error("Explorer editorial fields must be non-empty strings when provided.");
+  }
   return site;
+}
+
+export function validateNavigation(navigation) {
+  if (!isRecord(navigation) || !Array.isArray(navigation.items)) throw new Error("Navigation must contain an items array.");
+  for (const [index, item] of navigation.items.entries()) {
+    if (!isRecord(item) || !nonEmpty(item.label) || typeof item.href !== "string" ||
+        !/^(?:https?:\/\/|mailto:|\/(?!\/)|#|\.\/)(?!.*[\\\s<>"'])[^\u0000-\u001f]*$/i.test(item.href)) {
+      throw new Error(`Navigation item ${index + 1} requires a label and a safe link.`);
+    }
+  }
+  return navigation;
 }
 
 export function validatePlaces(places) {
@@ -102,18 +194,65 @@ export function validatePages(pages, collections) {
   if (!isRecord(collections)) throw new Error("Page validation requires a validated collections object.");
   if (!isRecord(pages) || Object.keys(pages).length === 0) throw new Error("Pages must be a non-empty object keyed by page id.");
   for (const [id, page] of Object.entries(pages)) {
-    if (!isRecord(page) || !nonEmpty(page.route) || !page.route.startsWith("/")) throw new Error(`Page '${id}' must have an absolute route.`);
+    if (!isRecord(page) || !nonEmpty(page.route) || !page.route.startsWith("/") || page.route.includes("\\") ||
+        /[?#\s<>"']/.test(page.route) || page.route.split("/").some((part) => part === "." || part === "..") ||
+        (page.route !== "/" && page.route.slice(1).replace(/\/$/, "").split("/").some((part) => !part)) ||
+        !/^\/[a-z0-9._/-]*$/i.test(page.route)) throw new Error(`Page '${id}' must have a safe absolute route.`);
     if (!Array.isArray(page.sections)) throw new Error(`Page '${id}' sections must be an array.`);
     for (const [index, section] of page.sections.entries()) {
       if (!isRecord(section) || typeof section.component !== "string" || !PAGE_COMPONENTS.has(section.component)) {
         throw new Error(`Page '${id}' section ${index} uses an unknown component.`);
       }
       if (section.props !== undefined && !isRecord(section.props)) throw new Error(`Page '${id}' section ${index} props must be an object when provided.`);
+      const props = section.props || {};
+      const allowedProps = {
+        hero: new Set(["title", "variant", "image", "imageAlt", "eyebrow", "description"]),
+        "guide-collection": new Set(["collection", "variant"]),
+        "feature-gallery": new Set(["title"]),
+        "install-prompt": new Set(),
+      }[section.component];
+      for (const [key, value] of Object.entries(props)) {
+        if (!allowedProps.has(key)) throw new Error(`Page '${id}' section ${index} has unsupported ${section.component} prop '${key}'.`);
+        if (typeof value !== "string" || !nonEmpty(value)) throw new Error(`Page '${id}' section ${index} prop '${key}' must be a non-empty string.`);
+      }
+      if (section.component === "hero") {
+        if (props.variant !== undefined && !["default", "landscape"].includes(props.variant)) {
+          throw new Error(`Page '${id}' hero variant must be 'default' or 'landscape'.`);
+        }
+        if (props.image !== undefined && !validatePublicAssetPath(props.image)) {
+          throw new Error(`Page '${id}' hero image must be a safe package asset path beginning with '/'.`);
+        }
+        if (props.image !== undefined && !nonEmpty(props.imageAlt)) throw new Error(`Page '${id}' hero image requires descriptive imageAlt text.`);
+        if (props.imageAlt !== undefined && props.image === undefined) throw new Error(`Page '${id}' hero imageAlt requires an image.`);
+      }
       if (section.component === "guide-collection") {
-        const collectionId = section.props?.collection;
+        const collectionId = props.collection;
         if (!nonEmpty(collectionId) || !Object.hasOwn(collections, collectionId)) throw new Error(`Page '${id}' references an unknown guide collection.`);
+        if (props.variant !== undefined && !["default", "image-cards"].includes(props.variant)) {
+          throw new Error(`Page '${id}' guide-collection variant must be 'default' or 'image-cards'.`);
+        }
       }
     }
   }
+  validatePageOutputPaths(pages);
+  return pages;
+}
+
+function validatePageOutputPaths(pages, contentIds = []) {
+  const outputs = [];
+  for (const [id, page] of Object.entries(pages)) {
+    outputs.push({ owner: `Page '${id}'`, path: routeToOutputName(page.route), allowIndex: page.route === "/" });
+  }
+  for (const id of contentIds) outputs.push({ owner: `Markdown article '${id}'`, path: `${encodeURIComponent(id)}.html` });
+  validateOutputPathSet(outputs);
+}
+
+export function validateGeneratedOutputPaths(pages, contentIds, assetPaths = []) {
+  if (!isRecord(pages)) throw new Error("Output path validation requires validated pages.");
+  const outputs = [];
+  for (const [id, page] of Object.entries(pages)) outputs.push({ owner: `Page '${id}'`, path: routeToOutputName(page.route), allowIndex: page.route === "/" });
+  for (const id of contentIds) outputs.push({ owner: `Markdown article '${id}'`, path: `${encodeURIComponent(id)}.html` });
+  for (const file of assetPaths) outputs.push({ owner: `Package asset '${file}'`, path: file });
+  validateOutputPathSet(outputs);
   return pages;
 }

@@ -4,6 +4,8 @@ import type { Map } from "mapbox-gl";
 import { applyTerrainView, applyCameraPitch, setTerrainElevation, terrainMinZoom, TERRAIN_SOURCE, TERRAIN_PITCH, TERRAIN_EXAGGERATION } from "../src/terrain";
 import { regionMinZoom } from "../src/region";
 
+const bounds: [[number, number], [number, number]] = [[-79.5, 39.2], [-79.0, 39.8]];
+
 test("3D loads one DEM source, enables terrain and tilt; 2D resets both", () => {
   let source: unknown;
   let additions = 0;
@@ -24,39 +26,39 @@ test("3D loads one DEM source, enables terrain and tilt; 2D resets both", () => 
     setMinZoom: (value: number) => { zoom = value; },
     easeTo: (value: typeof camera) => { camera = value; },
   };
-  applyTerrainView(mock as Map, true, false);
+  applyTerrainView(mock as Map, bounds, true, false);
   assert.deepEqual(terrain, { source: TERRAIN_SOURCE, exaggeration: TERRAIN_EXAGGERATION });
   assert.equal(camera?.pitch, TERRAIN_PITCH);
   assert.equal(minPitch, TERRAIN_PITCH);
   assert.equal(camera?.duration, 800);
   assert.ok(zoom > 10);
-  applyTerrainView(mock as Map, true, true);
+  applyTerrainView(mock as Map, bounds, true, true);
   assert.equal(additions, 1);
   assert.equal(camera?.duration, 0);
-  applyTerrainView(mock as Map, true, true, 5, 10);
+  applyTerrainView(mock as Map, bounds, true, true, 5, 10);
   assert.equal(camera?.pitch, TERRAIN_PITCH, "3D cannot start below its enforced minimum");
-  applyTerrainView(mock as Map, true, true, 5, 80);
+  applyTerrainView(mock as Map, bounds, true, true, 5, 80);
   assert.equal(camera?.pitch, 80, "higher user pitch is preserved");
-  applyTerrainView(mock as Map, false, true);
+  applyTerrainView(mock as Map, bounds, false, true);
   assert.equal(minPitch, 0);
   assert.equal(terrain, null);
   assert.equal(camera?.pitch, 0);
   assert.equal(camera?.bearing, 0);
-  assert.equal(zoom, regionMinZoom(900, 800));
-  applyCameraPitch(mock as Map, 85);
+  assert.equal(zoom, regionMinZoom(bounds, 900, 800));
+  applyCameraPitch(mock as Map, bounds, 85);
   assert.equal(camera?.pitch, 85);
   setTerrainElevation(mock as Map, true, 10);
   assert.deepEqual(terrain, { source: TERRAIN_SOURCE, exaggeration: 10 });
   assert.equal(camera?.pitch, 85, "changing steepness preserves camera pitch");
   assert.equal(additions, 1);
-  applyCameraPitch(mock as Map, 0);
+  applyCameraPitch(mock as Map, bounds, 0);
   assert.equal(camera?.pitch, 0);
-  assert.equal(zoom, regionMinZoom(900, 800));
-  assert.throws(() => applyCameraPitch(mock as Map, 86), RangeError);
+  assert.equal(zoom, regionMinZoom(bounds, 900, 800));
+  assert.throws(() => applyCameraPitch(mock as Map, bounds, 86), RangeError);
   assert.throws(() => setTerrainElevation(mock as Map, true, 11), RangeError);
 });
 
 test("flat zoom floor remains unchanged and tilted view tightens it", () => {
-  assert.equal(terrainMinZoom(900, 800, 0), regionMinZoom(900, 800));
-  assert.ok(terrainMinZoom(400, 900, TERRAIN_PITCH) > terrainMinZoom(400, 900, 0));
+  assert.equal(terrainMinZoom(bounds, 900, 800, 0), regionMinZoom(bounds, 900, 800));
+  assert.ok(terrainMinZoom(bounds, 400, 900, TERRAIN_PITCH) > terrainMinZoom(bounds, 400, 900, 0));
 });

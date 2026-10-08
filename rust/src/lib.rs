@@ -178,6 +178,61 @@ pub fn geo_contains_point(longitude: f64, latitude: f64,
         longitude >= west && longitude <= east && latitude >= south && latitude <= north
 }
 
+type Coordinate = [f64; 2];
+
+fn clip_segments(segments: Vec<Vec<Coordinate>>, west: f64, south: f64, east: f64, north: f64) -> Vec<Vec<Coordinate>> {
+    if !valid_bounds(west, south, east, north) { return vec![]; }
+    let mut result = Vec::new();
+    for segment in segments {
+        let mut current: Vec<Coordinate> = Vec::new();
+        for pair in segment.windows(2) {
+            let a = pair[0]; let b = pair[1];
+            if !a.iter().chain(b.iter()).all(|value| value.is_finite()) { current.clear(); continue; }
+            let dx = b[0] - a[0]; let dy = b[1] - a[1];
+            let p = [-dx, dx, -dy, dy];
+            let q = [a[0] - west, east - a[0], a[1] - south, north - a[1]];
+            let mut start: f64 = 0.0; let mut end: f64 = 1.0; let mut visible = true;
+            for edge in 0..4 {
+                if p[edge] == 0.0 { if q[edge] < 0.0 { visible = false; } }
+                else {
+                    let ratio = q[edge] / p[edge];
+                    if p[edge] < 0.0 { start = start.max(ratio); } else { end = end.min(ratio); }
+                }
+            }
+            if !visible || start > end {
+                if current.len() > 1 { result.push(std::mem::take(&mut current)); } else { current.clear(); }
+                continue;
+            }
+            let clamp = |point: Coordinate| [point[0].clamp(west, east), point[1].clamp(south, north)];
+            let first = clamp([a[0] + start * dx, a[1] + start * dy]);
+            let last = clamp([a[0] + end * dx, a[1] + end * dy]);
+            let inside_a = a[0] >= west && a[0] <= east && a[1] >= south && a[1] <= north;
+            if current.last().is_none_or(|previous| *previous != first) || !inside_a {
+                if current.len() > 1 { result.push(std::mem::take(&mut current)); } else { current.clear(); }
+                current.push(first);
+            }
+            current.push(last);
+            let inside_b = b[0] >= west && b[0] <= east && b[1] >= south && b[1] <= north;
+            if !inside_b {
+                if current.len() > 1 { result.push(std::mem::take(&mut current)); } else { current.clear(); }
+            }
+        }
+        if current.len() > 1 { result.push(current); }
+    }
+    result
+}
+
+#[wasm_bindgen]
+pub fn geo_clip_segments(segments_json: &str, bounds_json: &str) -> Result<String, JsValue> {
+    let groups: Vec<Vec<Vec<Coordinate>>> = serde_json::from_str(segments_json).map_err(|error| JsValue::from_str(&format!("Invalid trail geometry: {error}")))?;
+    let bounds: [f64; 4] = serde_json::from_str(bounds_json).map_err(|error| JsValue::from_str(&format!("Invalid region bounds: {error}")))?;
+    if !valid_bounds(bounds[0], bounds[1], bounds[2], bounds[3]) { return Err(JsValue::from_str("Region bounds are invalid.")); }
+    let clipped: Vec<Vec<Vec<Coordinate>>> = groups.into_iter().map(|segments|
+        clip_segments(segments, bounds[0], bounds[1], bounds[2], bounds[3])).collect();
+    serde_json::to_string(&clipped)
+        .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,5 +318,14 @@ mod tests {
         assert!(!valid_bounds(-181.0, 39.2, -79.0, 39.8));
         assert!(geo_contains_point(-79.25, 39.5, -79.5, 39.2, -79.0, 39.8));
         assert!(!geo_contains_point(-80.0, 39.5, -79.5, 39.2, -79.0, 39.8));
+    }
+
+    #[test]
+    fn clips_crossing_segments_without_joining_excursions() {
+        let bounds = [-1.0, -1.0, 1.0, 1.0];
+        let crossing = clip_segments(vec![vec![[-2.0, 0.0], [2.0, 0.0]]], bounds[0], bounds[1], bounds[2], bounds[3]);
+        assert_eq!(crossing, vec![vec![[-1.0, 0.0], [1.0, 0.0]]]);
+        let excursion = clip_segments(vec![vec![[0.5, 0.0], [2.0, 0.0], [2.0, 0.5], [0.5, 0.5]]], bounds[0], bounds[1], bounds[2], bounds[3]);
+        assert_eq!(excursion.len(), 2);
     }
 }

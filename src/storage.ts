@@ -1,12 +1,12 @@
 import type { SavedOuting } from "./domain";
 import type { HikeDiscovery } from "./hikes";
 
-let database: Promise<IDBDatabase> | undefined;
+const databases = new Map<string, Promise<IDBDatabase>>();
 
-function openDatabase(): Promise<IDBDatabase> {
-  if (!database) {
-    database = new Promise((resolve, reject) => {
-      const request = indexedDB.open("garrett-adventures", 2);
+function openDatabase(siteId: string): Promise<IDBDatabase> {
+  if (!databases.has(siteId)) {
+    const database = new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(`open-cms-${siteId}`, 1);
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains("outings")) request.result.createObjectStore("outings", { keyPath: "id" });
         if (!request.result.objectStoreNames.contains("discovery")) request.result.createObjectStore("discovery");
@@ -14,41 +14,42 @@ function openDatabase(): Promise<IDBDatabase> {
       request.onsuccess = () => {
         request.result.onversionchange = () => {
           request.result.close();
-          database = undefined;
+          databases.delete(siteId);
         };
         resolve(request.result);
       };
       request.onerror = () => reject(new Error("Cannot open local storage. Your browser may block saved outings."));
       request.onblocked = () => reject(new Error("Local storage upgrade is blocked. Close other app tabs and retry."));
     });
+    databases.set(siteId, database);
   }
 
-  return database;
+  return databases.get(siteId)!;
 }
 
-export async function readDiscovery(): Promise<HikeDiscovery | undefined> {
-  const db = await openDatabase();
+export async function readDiscovery(siteId: string): Promise<HikeDiscovery | undefined> {
+  const db = await openDatabase(siteId);
   return new Promise((resolve, reject) => {
     const transaction = db.transaction("discovery", "readonly");
-    const request = transaction.objectStore("discovery").get("garrett");
+    const request = transaction.objectStore("discovery").get(siteId);
     transaction.oncomplete = () => resolve(request.result as HikeDiscovery | undefined);
     transaction.onerror = () => reject(new Error("Could not read cached hike discovery."));
     transaction.onabort = () => reject(new Error("Reading cached hikes was interrupted."));
   });
 }
 
-export async function writeDiscovery(result: HikeDiscovery): Promise<void> {
-  const db = await openDatabase();
+export async function writeDiscovery(siteId: string, result: HikeDiscovery): Promise<void> {
+  const db = await openDatabase(siteId);
   return new Promise((resolve, reject) => {
     const transaction = db.transaction("discovery", "readwrite");
-    transaction.objectStore("discovery").put(result, "garrett");
+    transaction.objectStore("discovery").put(result, siteId);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(new Error("Hikes were fetched but could not be cached on this device."));
     transaction.onabort = () => reject(new Error("Caching hikes failed. Check available browser storage."));
   });
 }
-export async function readOutings(): Promise<SavedOuting[]> {
-  const db = await openDatabase();
+export async function readOutings(siteId: string): Promise<SavedOuting[]> {
+  const db = await openDatabase(siteId);
   return new Promise((resolve, reject) => {
     const transaction = db.transaction("outings", "readonly");
     const request = transaction.objectStore("outings").getAll();
@@ -58,8 +59,8 @@ export async function readOutings(): Promise<SavedOuting[]> {
   });
 }
 
-export async function writeOuting(outing: SavedOuting): Promise<void> {
-  const db = await openDatabase();
+export async function writeOuting(siteId: string, outing: SavedOuting): Promise<void> {
+  const db = await openDatabase(siteId);
   return new Promise((resolve, reject) => {
     const transaction = db.transaction("outings", "readwrite");
     transaction.objectStore("outings").put(outing);
@@ -69,8 +70,8 @@ export async function writeOuting(outing: SavedOuting): Promise<void> {
   });
 }
 
-export async function removeOuting(id: string): Promise<void> {
-  const db = await openDatabase();
+export async function removeOuting(siteId: string, id: string): Promise<void> {
+  const db = await openDatabase(siteId);
   return new Promise((resolve, reject) => {
     const transaction = db.transaction("outings", "readwrite");
     transaction.objectStore("outings").delete(id);

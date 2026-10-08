@@ -1,7 +1,7 @@
 import path from "node:path";
 import { validateSitePackage } from "./site-package-fs.mjs";
 
-const siteDirectory = path.resolve(process.argv[2] || "sites/garrett-county");
+const siteDirectory = path.resolve(process.argv[2] || "sites/demo-region");
 try {
   const { manifest } = validateSitePackage(siteDirectory);
   console.log(`Valid site package: ${manifest.name} (${manifest.id}), format ${manifest.format}`);

@@ -1,13 +1,9 @@
-import geojson from "./model/geo.json";
 import type { HikeSource } from "./hikes";
+import type { Place } from "./site-package";
 
-export interface Place {
-  id: string;
-  name: string;
-  description: string;
-  activities: string[];
-  coordinates: [number, number];
-}
+export type { Place } from "./site-package";
+
+export type { SiteRuntime } from "./site-package";
 
 export interface TrailPoint {
   longitude: number;
@@ -45,17 +41,13 @@ const categories: [string, RegExp][] = [
   ["Sightseeing", /view|museum|shopping/i],
 ];
 
-export const places: Place[] = geojson.features.map((feature) => ({
-  id: feature.id,
-  name: feature.properties["Park Name"],
-  description: feature.properties.Description,
-  activities: categories
-    .filter(([, expression]) => expression.test(feature.properties.Activities || ""))
-    .map(([label]) => label),
-  coordinates: [feature.geometry.coordinates[0], feature.geometry.coordinates[1]],
-}));
+export const places: Place[] = [];
+export const activityOptions: string[] = [];
 
-export const activityOptions = categories.map(([label]) => label);
+export function configurePlaces(data: Place[]): void {
+  places.splice(0, places.length, ...data);
+  activityOptions.splice(0, activityOptions.length, ...[...new Set(data.flatMap((place) => place.activities))].sort());
+}
 
 export function filterPlaces(data: Place[], query: string, activity: string): Place[] {
   const term = query.trim().toLocaleLowerCase();

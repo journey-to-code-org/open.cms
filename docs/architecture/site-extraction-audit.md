@@ -1,40 +1,23 @@
-# Site extraction audit (v0.1 foundation)
+# Site extraction audit (0.2.0)
 
-This audit records the imported GCADV baseline and the first package boundary. The package fixtures are data copies; the current application is not yet fully driven by them. Do not treat the existence of `sites/` as proof that runtime separation is complete.
+The selected v1 package now supplies the runtime and static site build. The [runtime architecture note](v0.2-package-runtime.md) describes the loader, safety checks, geographic handoff, static output, and component boundaries.
 
-## Existing coupling
-
-| Location | Current responsibility and GCADV coupling | Extraction status |
+| Area | 0.2.0 source of truth | Remaining work |
 | --- | --- | --- |
-| `src/region.ts` | Garrett bounds, BBOX, clipping and zoom calculations are module constants. | Outstanding: signatures and callers still need package bounds. |
-| `src/domain.ts` | Imports `src/model/geo.json`, maps GCADV property names and category labels to runtime places. | Fixture data copied to `sites/garrett-county/data`; runtime import remains. |
-| `src/app.ts` | Contains GCADV branding, map summaries, trail query language and large imperative app shell. | Outstanding; this is the main runtime coupling. |
-| `src/hikes.ts` | Regional Overpass request and clipping rely on global BBOX/bounds. | Trail snapshot copied to the package; query still needs active package bounds. |
-| `src/model/geo.json`, `src/model/hikes.json` | Garrett place data and regional OpenStreetMap trail snapshot. | Copies exist in the fixture package; source imports remain for compatibility. |
-| `content/articles/*` | All Markdown articles are GCADV-specific. | Copied under `sites/garrett-county/content`. |
-| `scripts/content-site.js`, `scripts/build-content.js` | Article IDs, homepage collections and metadata are assembled for the GCADV pages. | Outstanding: generator still reads root `content/` and hardcodes composition. |
-| `index.html`, `explore.html` | Branding, canonical URL, SEO, homepage copy and regional safety language are literal HTML. | Outstanding; package SEO/pages are initial data only. |
-| `public/manifest.webmanifest`, `public/images/*` | PWA identity and many branded visual assets are fixed. | Assets copied; generated manifest is not wired yet. |
-| `vite.config.mjs` | Calls `buildSite()` without an active package and uses legacy build flow. | Outstanding: `--site` selection and package builds are not yet supported. |
+| Site identity, SEO, PWA, theme | Selected package `site.json` and `theme/theme.json` | Add richer metadata/image schema when the format needs it. |
+| Navigation and page composition | Package `navigation.json` and `pages.json`, component IDs validated against the shared registry | Add richer safe components through allowlisted IDs. |
+| Collections and content | Package collections and Markdown files | The renderer is deliberately small; it does not replace a general-purpose authoring system. |
+| Places | Package GeoJSON normalized to the internal `Place` model | Add optional place fields only through schema changes. |
+| Trails and region | Package snapshot and `config.region.bounds` | Keep snapshot refreshes package-scoped and preserve attribution/limits. |
+| Assets | Selected package asset directory is Vite's public directory | Define richer asset metadata only when a component consumes it. |
+| Geographic processing | TypeScript utilities take bounds; Rust/WASM validates and clips grouped geometry | Add parity and performance cases when operations expand. |
+| Interactive UI | Place list, hike list, and notice are native custom elements | `app.ts` still owns app/map lifecycle, filters, storage, refresh, and GPX coordination. |
+| Root legacy input | Root `src/model` imports, fixed homepage, old generator, and static GC public asset map are removed from the build | `content/` and `docs/README.md` remain historical Garrett material; the Garrett fixture remains a public test package. |
 
-Searches found Garrett/Deep Creek/Maryland/Oakland references throughout those runtime files, the imported content, model snapshots, and branded public assets. References within `sites/garrett-county/` are expected migration-fixture content. Runtime references outside it remain extraction work; no blind replacement was performed. OpenStreetMap attribution, offline limitations, and trail-safety text should be preserved during that work.
+## Garrett-specific review
 
-## Package v1 shape
+The generic runtime and generated demo output have no Garrett coordinates or brand copy. Garrett names and data remain in `sites/garrett-county/`, package fixture tests, and Garrett-specific operational documentation. The development service-worker cleanup retains the historical `chingu-adventures-` and `chingu-mapbox-` prefixes to clear caches made by earlier installs.
 
-`sites/garrett-county/` and the fictional `sites/demo-region/` use a JSON manifest with `format: 1`. Package paths are relative and the TypeScript parser rejects traversal paths. `scripts/validate-site.mjs` checks required paths, region bounds, page-to-collection references, GeoJSON shape, and collection article references.
+## Verification summary
 
-`src/site-package.ts` defines `SiteConfig`, `RegionConfig`, `SeoConfig`, `PwaConfig`, `ThemeConfig`, and `SiteManifest`. Browser-safe pure value checks live in `shared/site-validation.mjs`; `scripts/site-package-fs.mjs` adds Node-only loading and path security checks, then delegates data checks to the shared module. The declaration file is `shared/site-validation.d.mts`. Tests exercise both layers. The current schemas are the initial v1 contract and still need broader JSON Schema coverage and migration policy.
-
-## Engine and site boundaries
-
-The engine should own rendering, generic collections, maps, trails, Markdown processing, PWA mechanics, storage, validation, and build commands. A site package should own brand and publisher identity, region bounds, content, places, trail snapshots, navigation, page composition, theme, imagery, and PWA/SEO values. The fixture package is removable in the target architecture, but current imports make it required today.
-
-The existing application has reusable interactive behavior and existing imperative modules, but this pass did not extract new Custom Elements. Components should be drawn around independently owned map/place/trail workflows, with DOM events and shared site context; avoid wrappers that do not own behavior.
-
-Rust currently parses and analyzes GPX locally. This pass adds WASM exports for geographic bounds validation and point containment. Segment clipping, distance APIs, and actual application calls into these exports remain follow-up work; the existing clipping algorithm is still TypeScript.
-
-## Creating a package
-
-Copy `sites/demo-region/` as a starting fixture, assign a unique kebab-case id and manifest format 1, and provide site/map/navigation/collections/pages JSON, Markdown, GeoJSON, trail snapshot, theme, and assets. Run `npm run validate:site -- sites/my-region`. At this milestone, validation works, but the dev server and production build do not yet select or render arbitrary packages. Build selection is a v0.2 task, not a supported command today.
-
-Static deployment remains the current delivery model. Existing PWA behavior remains in the baseline; configurable PWA identity and independently built package output are not yet connected.
+Both packages load and validate. Tests cover normalized package data, collection/page references, safe paths, safe navigation, site selection, demo and Garrett bounds, region clipping, OpenStreetMap provenance, static identity, and malicious authored HTML. Rust tests cover GPX analysis plus geographic bounds/containment/clipping. The documented release checklist also verifies independent builds and a demo build with the Garrett fixture temporarily unavailable.

@@ -3,6 +3,7 @@ layout: article.njk
 title: Best Things to Do in Garrett County, Maryland
 dek: A county-wide guide to Deep Creek Lake, state parks, mountain recreation, small towns, working studios, river communities, and the places worth exploring across Garrett County.
 description: "A practical county-wide guide to the best things to do in Garrett County, Maryland, including Deep Creek Lake, state parks, waterfalls, Wisp, Oakland, Grantsville, Accident, Friendsville, Wolf Den Run, and quieter forest areas."
+image: /images/gcadv-home.webp
 last_checked: August 19, 2026
 permalink: /things-to-do-garrett-county.html
 body_class: theme-summer lake-quest-page

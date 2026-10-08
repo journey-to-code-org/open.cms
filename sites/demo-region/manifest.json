@@ -12,5 +12,6 @@
   "places": "./data/places.geojson",
   "trails": "./data/hikes.json",
   "theme": "./theme/theme.json",
+  "themeCss": "./theme/theme.css",
   "assets": "./assets"
 }

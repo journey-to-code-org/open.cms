@@ -1,5 +1,6 @@
 import type { Map } from "mapbox-gl";
 import { regionMinZoom } from "./region";
+import type { Bounds } from "./site-package";
 
 export const TERRAIN_SOURCE = "adventure-terrain";
 export const TERRAIN_PITCH = 45;
@@ -21,21 +22,21 @@ export function setTerrainElevation(map: Map, enabled: boolean, exaggeration = T
   map.setTerrain(enabled ? { source: TERRAIN_SOURCE, exaggeration } : null);
 }
 
-export function terrainMinZoom(width: number, height: number, pitch: number): number {
-  return regionMinZoom(width, height / Math.cos(pitch * Math.PI / 180));
+export function terrainMinZoom(bounds: Bounds, width: number, height: number, pitch: number): number {
+  return regionMinZoom(bounds, width, height / Math.cos(pitch * Math.PI / 180));
 }
 
-export function applyCameraPitch(map: Map, pitch: number): void {
+export function applyCameraPitch(map: Map, bounds: Bounds, pitch: number): void {
   if (!Number.isFinite(pitch) || pitch < 0 || pitch > MAX_PITCH) {
     throw new RangeError(`Camera pitch must be between 0 and ${MAX_PITCH} degrees.`);
   }
   const container = map.getContainer();
   map.stop();
-  map.setMinZoom(terrainMinZoom(container.clientWidth, container.clientHeight, pitch));
+  map.setMinZoom(terrainMinZoom(bounds, container.clientWidth, container.clientHeight, pitch));
   map.jumpTo({ pitch });
 }
 
-export function applyTerrainView(map: Map, enabled: boolean, reducedMotion: boolean,
+export function applyTerrainView(map: Map, bounds: Bounds, enabled: boolean, reducedMotion: boolean,
   exaggeration = TERRAIN_EXAGGERATION, pitch = TERRAIN_PITCH): void {
   if (!Number.isFinite(pitch) || pitch < 0 || pitch > MAX_PITCH) {
     throw new RangeError(`Camera pitch must be between 0 and ${MAX_PITCH} degrees.`);
@@ -45,10 +46,10 @@ export function applyTerrainView(map: Map, enabled: boolean, reducedMotion: bool
   const targetPitch = enabled ? Math.max(TERRAIN_PITCH, pitch) : 0;
   const container = map.getContainer();
   // A tilted viewport sees farther toward the horizon; retain a tighter regional zoom floor.
-  map.setMinZoom(terrainMinZoom(container.clientWidth, container.clientHeight,
+  map.setMinZoom(terrainMinZoom(bounds, container.clientWidth, container.clientHeight,
     Math.max(map.getPitch(), targetPitch)));
   map.easeTo({ pitch: targetPitch, bearing: enabled ? map.getBearing() : 0, duration: reducedMotion ? 0 : 800 });
   if (!enabled && reducedMotion) {
-    map.setMinZoom(terrainMinZoom(container.clientWidth, container.clientHeight, 0));
+    map.setMinZoom(terrainMinZoom(bounds, container.clientWidth, container.clientHeight, 0));
   }
 }

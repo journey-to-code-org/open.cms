@@ -1,4 +1,4 @@
-const CACHE_NAME = "chingu-adventures-__CACHE_VERSION__";
+const CACHE_NAME = "open-cms-__SITE_ID__-__CACHE_VERSION__";
 const ASSETS = __PRECACHE_ASSETS__;
 
 self.addEventListener("install", (event) => {
@@ -10,7 +10,8 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((names) => Promise.all(
       names.filter((name) =>
-        (name.startsWith("chingu-adventures-") || name.startsWith("chingu-mapbox-")) && name !== CACHE_NAME,
+        (name.startsWith("chingu-adventures-") || name.startsWith("chingu-mapbox-") ||
+          name.startsWith("open-cms-__SITE_ID__-")) && name !== CACHE_NAME,
       ).map((name) => caches.delete(name)),
     )),
   );

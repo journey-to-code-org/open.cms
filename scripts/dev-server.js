@@ -1,5 +1,6 @@
 const { spawn } = require("node:child_process");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 
 const ROOT = path.resolve(__dirname, "..");
 const viteBin = path.join(ROOT, "node_modules", "vite", "bin", "vite.js");
@@ -24,17 +25,19 @@ function run(command, args) {
 }
 
 async function start() {
+  const { activeSiteFromArgs } = await import(pathToFileURL(path.join(ROOT, "scripts", "active-site.mjs")));
+  const site = activeSiteFromArgs(process.argv.slice(2));
   await run("wasm-pack", ["build", "rust", "--target", "web", "--out-dir", "pkg"]);
 
   const servers = [
     ["localhost", undefined],
-    ["127.0.0.1", path.join(ROOT, "node_modules", ".vite-ipv4")],
+    ["127.0.0.1", path.join(ROOT, "node_modules", ".vite-open-cms-ipv4")],
   ];
   for (const [host, cacheDir] of servers) {
     const child = spawn(process.execPath, [viteBin, "--host", host, "--port", "3000", "--strictPort"], {
       cwd: ROOT,
       stdio: "inherit",
-      env: cacheDir ? { ...process.env, CHINGU_VITE_CACHE_DIR: cacheDir } : process.env,
+      env: { ...process.env, OPEN_CMS_SITE: site, ...(cacheDir ? { OPEN_CMS_VITE_CACHE_DIR: cacheDir } : {}) },
     });
     children.push(child);
     child.once("error", (error) => {

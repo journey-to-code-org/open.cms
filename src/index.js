@@ -1,1 +1,0 @@
-import controller from './controller';

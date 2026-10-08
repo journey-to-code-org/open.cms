@@ -2,17 +2,41 @@ import type mapboxgl from "mapbox-gl";
 import { loadMapboxToken } from "./map-config";
 import type { FeatureCollection } from "geojson";
 import {
-  places, activityOptions, filterPlaces, estimateMinutes, formatDistance, formatDuration,
+  places, activityOptions, configurePlaces, filterPlaces, estimateMinutes, formatDistance, formatDuration,
   type Place, type Analysis, type SavedOuting, type TrailPoint,
 } from "./domain";
 import { readOutings, writeOuting, removeOuting, readDiscovery, writeDiscovery } from "./storage";
 import { discoverHikes, hikeGpx, makeGpx, mergeDiscovery, parseSnapshot, OVERPASS_SERVERS, type Hike, type HikeDiscovery, type HikeSource } from "./hikes";
-import { REGION_BOUNDS, regionMinZoom } from "./region";
+import { regionMinZoom } from "./region";
 import { applyTerrainView, applyCameraPitch, setTerrainElevation, terrainMinZoom,
   TERRAIN_SOURCE, TERRAIN_PITCH, MAX_PITCH, TERRAIN_EXAGGERATION } from "./terrain";
 import type { AnalysisResponse } from "./analysis.worker";
+import siteRuntime from "virtual:open-cms-site";
+import { OpenCmsPlaceList } from "./components/place-list";
+import { OpenCmsHikeList } from "./components/hike-list";
+import { OpenCmsNotice } from "./components/notice";
 import "mapbox-gl/dist/mapbox-gl.css";
 import "./app.css";
+
+document.documentElement.style.setProperty("--page", siteRuntime.theme.background);
+document.documentElement.style.setProperty("--ink", siteRuntime.theme.text);
+document.documentElement.style.setProperty("--leaf", siteRuntime.theme.accent);
+document.documentElement.style.setProperty("--gold", siteRuntime.theme.accent);
+configurePlaces(siteRuntime.places);
+const siteId = siteRuntime.config.id;
+const siteTheme = document.createElement("style");
+siteTheme.dataset.siteTheme = siteRuntime.config.id;
+siteTheme.textContent = siteRuntime.themeCss;
+document.head.append(siteTheme);
+const explorerCopy = {
+  headerCaption: "Explore the region",
+  mapCaption: "Explore places around you.",
+  eyebrow: "EXPLORE YOUR REGION",
+  heading: "Find a place to explore.",
+  description: "Browse places and activities across the region.",
+  searchPlaceholder: "Search places and activities",
+  ...siteRuntime.config.explorer,
+};
 
 function get<T extends HTMLElement>(id: string, type: { new(): T }): T {
   const element = document.getElementById(id);
@@ -36,12 +60,16 @@ function button(text: string, action: () => void, className = "button"): HTMLBut
   return element;
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
+}
+
 get("app", HTMLElement).innerHTML = `
   <header class="topbar">
     <a class="brand" href="./">
-      <span>Garrett County Adventures<span class="brand-subtitle">MARYLAND’S HIDDEN GEM</span></span>
+      <span>${escapeHtml(siteRuntime.config.name)}<span class="brand-subtitle">${escapeHtml(siteRuntime.config.region.name)}</span></span>
     </a>
-    <span class="header-caption">Less scrolling. More exploring.</span>
+    <span class="header-caption">${escapeHtml(explorerCopy.headerCaption)}</span>
     <a class="header-link" href="./#trip-guides">Trip guides</a>
     <span id="connection" class="connection"></span>
   </header>
@@ -52,7 +80,7 @@ get("app", HTMLElement).innerHTML = `
         <span class="map-loading-spinner" aria-hidden="true"></span>
         <span>Loading map…</span>
       </div>
-      <div class="map-caption"><strong>Your next adventure starts here.</strong><span id="map-summary">Garrett County and its immediate surroundings.</span></div>
+      <div class="map-caption"><strong>${escapeHtml(explorerCopy.mapCaption)}</strong><span id="map-summary">${escapeHtml(siteRuntime.config.region.name)} and its surroundings.</span></div>
       <button id="reset-map" type="button" class="map-reset">Show all places</button>
       <button id="terrain-toggle" type="button" class="terrain-toggle" aria-pressed="true" disabled>Return to 2D</button>
       <p id="map-notice" class="map-notice" hidden></p>
@@ -74,21 +102,21 @@ get("app", HTMLElement).innerHTML = `
           <p>Steepness applies in 3D terrain mode only. Heights are visually exaggerated, not measured slopes.</p>
         </details>
         <section id="explore-panel">
-          <p class="eyebrow">THE GREAT OUTDOORS, CLOSE TO HOME</p>
-          <h2>Find your kind<br>of adventure.</h2>
-          <p class="intro">Waterfalls, quiet lakes, and mountain views. Pick a place and make a day of it.</p>
+          <p class="eyebrow">${escapeHtml(explorerCopy.eyebrow)}</p>
+          <h2>${escapeHtml(explorerCopy.heading)}</h2>
+          <p class="intro">${escapeHtml(explorerCopy.description)}</p>
           <label class="field-label" for="search">Search places and activities</label>
-          <input id="search" type="search" placeholder="Try waterfalls or camping" autocomplete="off">
+          <input id="search" type="search" placeholder="${escapeHtml(explorerCopy.searchPlaceholder)}" autocomplete="off">
           <label class="field-label" for="activity">What do you feel like doing?</label>
           <select id="activity"><option value="">All activities</option></select>
           <div class="results-heading"><p id="result-count" role="status"></p><button id="clear-filters" class="text-button" type="button">Reset filters</button></div>
           <section id="place-details" aria-label="Selected place" hidden></section>
-          <ul id="place-list" class="place-list"></ul>
+          <open-cms-place-list id="place-list" class="place-list"></open-cms-place-list>
           <p id="empty-results" class="empty" hidden>No places match. Try a different activity or clear your search.</p>
           <p class="data-note">Curated project data, not live conditions. Verify access, opening hours, and trail suitability before heading out. Accessibility has not been verified.</p>
         </section>
         <section id="hikes-panel" hidden>
-          <p class="eyebrow">OPENSTREETMAP / GARRETT COUNTY REGION</p>
+          <p class="eyebrow">OPENSTREETMAP / ${escapeHtml(siteRuntime.config.region.name.toUpperCase())} REGION</p>
           <h1>Find a trail.</h1>
           <p class="intro">Local hiking routes and named paths are included with the app. Browse them immediately, or check for updated mapping. Community data, not verified hiking recommendations.</p>
           <label for="hike-server" class="field-label">Public trail service</label>
@@ -103,7 +131,7 @@ get("app", HTMLElement).innerHTML = `
           <label for="hike-kind" class="field-label">Map feature type</label>
           <select id="hike-kind"><option value="">Routes and paths</option><option>Hiking route</option><option>Mapped path</option></select>
           <p id="hike-count" role="status" class="data-note"></p>
-          <ul id="hike-list" class="place-list"></ul>
+          <open-cms-hike-list id="hike-list" class="place-list"></open-cms-hike-list>
           <p class="data-note">Relations may contain branches, gaps, and alternate sections. Each mapped way is kept as its own GPX segment; analysis sums those segments, not a verified end-to-end hike. No elevation is supplied. Check permissions and current conditions before walking.</p>
           <p class="data-note">Geometry is clipped to the regional map boundary. Longer trails may be partial; distances and exports cover only the included portion.</p>
           <p class="data-note">Data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>, ODbL. Regional searches use the public Overpass service; cached results may be outdated.</p>
@@ -149,7 +177,7 @@ get("app", HTMLElement).innerHTML = `
       <footer class="panel-footer">Built for the mountains. Computed on your device.</footer>
     </aside>
   </div>
-  <div id="notification" class="notification" role="status" hidden></div>
+  <open-cms-notice id="notification" class="notification" role="status" hidden></open-cms-notice>
 `;
 
 const search = get("search", HTMLInputElement);
@@ -182,16 +210,8 @@ let requestId = 0;
 let importing = false;
 let savingTrail = false;
 let activeTab = "explore";
-let notificationTimer: ReturnType<typeof setTimeout> | undefined;
-
 function notify(message: string, error = false): void {
-  const element = get("notification", HTMLDivElement);
-  clearTimeout(notificationTimer);
-  element.textContent = message;
-  element.classList.toggle("error", error);
-  element.setAttribute("role", error ? "alert" : "status");
-  element.hidden = false;
-  if (!error) notificationTimer = setTimeout(() => { element.hidden = true; }, 6000);
+  get("notification", OpenCmsNotice).show(message, error);
 }
 
 function report(error: unknown): void {
@@ -315,7 +335,7 @@ function renderDetails(): void {
   const isSaved = saved.some((outing) => outing.id === `place:${place.id}`);
   controls.append(button(isSaved ? "Saved on this device" : "Save outing offline", () => {
     perform(async () => {
-      await writeOuting({
+      await writeOuting(siteId, {
         id: `place:${place.id}`, kind: "place", name: place.name,
         savedAt: new Date().toISOString(), place,
       });
@@ -335,21 +355,16 @@ function renderDetails(): void {
 }
 
 function renderPlaces(): void {
-  const list = get("place-list", HTMLUListElement);
-  list.replaceChildren();
+  const list = get("place-list", OpenCmsPlaceList);
+  list.places = filtered;
+  list.selectedId = selectedPlace?.id;
   get("result-count", HTMLParagraphElement).textContent = `${filtered.length} ${filtered.length === 1 ? "place" : "places"} to explore`;
   get("empty-results", HTMLParagraphElement).hidden = filtered.length !== 0;
-  filtered.forEach((place) => {
-    const item = node("li", "", "place-card");
-    const select = button("", () => selectPlace(place), "place-select");
-    select.setAttribute("aria-pressed", String(selectedPlace?.id === place.id));
-    select.append(node("span", place.name, "place-name"));
-    select.append(node("span", place.description, "place-description"));
-    select.append(node("span", place.activities.slice(0, 3).join(" / ") || "Discover this place", "activity-text"));
-    item.append(select);
-    list.append(item);
-  });
 }
+
+get("place-list", OpenCmsPlaceList).addEventListener("place-select", (event) => {
+  selectPlace((event as CustomEvent<{ place: Place }>).detail.place);
+});
 
 function applyFilters(): void {
   filtered = filterPlaces(places, search.value, activity.value);
@@ -375,7 +390,7 @@ get("clear-filters", HTMLButtonElement).onclick = () => {
 };
 
 async function refreshSaved(): Promise<void> {
-  saved = (await readOutings()).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+  saved = (await readOutings(siteId)).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
   get("saved-count", HTMLSpanElement).textContent = String(saved.length);
   const list = get("saved-list", HTMLUListElement);
   list.replaceChildren();
@@ -401,7 +416,7 @@ async function refreshSaved(): Promise<void> {
     }));
     actions.append(button("Remove", () => {
       perform(async () => {
-        await removeOuting(outing.id);
+        await removeOuting(siteId, outing.id);
         if (savedTrailId === outing.id) savedTrailId = undefined;
         await refreshSaved();
         notify("Saved outing removed.");
@@ -536,7 +551,7 @@ get("save-trail", HTMLButtonElement).onclick = () => {
   get("save-trail", HTMLButtonElement).disabled = true;
   perform(async () => {
     try {
-      await writeOuting({ id, kind: "trail", name: snapshot.name, savedAt: new Date().toISOString(), analysis: snapshot, source });
+      await writeOuting(siteId, { id, kind: "trail", name: snapshot.name, savedAt: new Date().toISOString(), analysis: snapshot, source });
       if (analysis === snapshot) savedTrailId = id;
       await refreshSaved();
       notify("Trail geometry and analysis saved for offline use.");
@@ -572,7 +587,7 @@ function downloadGpx(name: string, xml: string): void {
 }
 
 get("export-trail", HTMLButtonElement).onclick = () => {
-  if (analysis) downloadGpx(analysis.name, makeGpx(analysis.name, analysis.segments, analysisSource));
+  if (analysis) downloadGpx(analysis.name, makeGpx(analysis.name, analysis.segments, analysisSource, siteRuntime.config.region.name));
 };
 
 function updateMapSummary(): void {
@@ -583,13 +598,12 @@ function updateMapSummary(): void {
 
 function renderHikes(): void {
   updateMapSummary();
-  const list = get("hike-list", HTMLUListElement);
-  list.replaceChildren();
+  const list = get("hike-list", OpenCmsHikeList);
   const term = get("hike-search", HTMLInputElement).value.trim().toLowerCase();
   const kind = get("hike-kind", HTMLSelectElement).value;
   if (!discoveryReady) {
     get("hike-count", HTMLParagraphElement).textContent = "Loading bundled trail data…";
-    list.append(node("li", "Bundled trail data is loading. The trails will appear here shortly.", "empty"));
+    list.hikes = [];
     return;
   }
   const matches = (discovery?.hikes || []).filter((hike) =>
@@ -598,32 +612,29 @@ function renderHikes(): void {
   get("hike-count", HTMLParagraphElement).textContent = discovery
     ? `${matches.length} of ${discovery.hikes.length} mapped features. ${discovery.skipped} unsupported or geometry-free records excluded.`
     : "No downloaded results yet.";
-  for (const hike of matches) {
-    const card = node("li", "", "saved-card");
-    card.append(node("p", hike.source.kind.toUpperCase(), "eyebrow"), node("h2", hike.name));
-    card.append(node("p", `${hike.segments.length} regional segments / ${hike.segments.reduce((sum, segment) => sum + segment.length, 0).toLocaleString()} points. Elevation unknown.`, "data-note"));
-    if (["no", "private"].includes(hike.source.tags.access) || hike.source.tags.foot === "no") {
-      card.append(node("p", "Restricted access is tagged. This is not a recommendation to enter.", "access-warning"));
-    }
-    card.append(sourceDetails(hike.source));
-    const actions = node("div", "", "card-actions");
-    actions.append(button("Preview on map", () => {
-      previewHike = hike;
-      updateMap();
-      if (mapReady && map) {
-        const bounds = new mapboxglRuntime!.LngLatBounds();
-        hike.segments.forEach((segment) => segment.forEach((point) => bounds.extend(point)));
-        map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: reducedMotion() ? 0 : 800 });
-      } else notify("Map unavailable. You can still analyze or export this geometry.");
-    }));
-    actions.append(button("Analyze hike", () => analyzeInput(async () => hikeGpx(hike), hike.source), "button primary"));
-    actions.append(button("Export GPX", () => downloadGpx(hike.name, hikeGpx(hike))));
-    card.append(actions);
-    list.append(card);
-  }
-  if (discovery && !matches.length) list.append(node("li", "No mapped hikes match. Clear filters or retry discovery later.", "empty"));
+  list.regionName = siteRuntime.config.region.name;
+  list.hikes = matches;
   hikesRendered = true;
 }
+
+get("hike-list", OpenCmsHikeList).addEventListener("hike-preview", (event) => {
+  const hike = (event as CustomEvent<{ hike: Hike }>).detail.hike;
+  previewHike = hike;
+  updateMap();
+  if (mapReady && map) {
+    const bounds = new mapboxglRuntime!.LngLatBounds();
+    hike.segments.forEach((segment) => segment.forEach((point) => bounds.extend(point)));
+    map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: reducedMotion() ? 0 : 800 });
+  } else notify("Map unavailable. You can still analyze or export this geometry.");
+});
+get("hike-list", OpenCmsHikeList).addEventListener("hike-analyze", (event) => {
+  const hike = (event as CustomEvent<{ hike: Hike }>).detail.hike;
+  analyzeInput(async () => hikeGpx(hike, siteRuntime.config.region.name), hike.source);
+});
+get("hike-list", OpenCmsHikeList).addEventListener("hike-export", (event) => {
+  const hike = (event as CustomEvent<{ hike: Hike }>).detail.hike;
+  downloadGpx(hike.name, hikeGpx(hike, siteRuntime.config.region.name));
+});
 
 get("hike-search", HTMLInputElement).oninput = renderHikes;
 get("hike-kind", HTMLSelectElement).onchange = renderHikes;
@@ -641,16 +652,16 @@ get("find-hikes", HTMLButtonElement).onclick = () => {
   get("find-hikes", HTMLButtonElement).disabled = true;
   get("hike-server", HTMLSelectElement).disabled = true;
   get("cancel-hikes", HTMLButtonElement).hidden = false;
-  get("hikes-state", HTMLParagraphElement).textContent = "Searching the Garrett County region. This may take up to 35 seconds...";
+  get("hikes-state", HTMLParagraphElement).textContent = `Searching the ${siteRuntime.config.region.name} region. This may take up to 35 seconds...`;
   const timeout = setTimeout(() => controller.abort(new Error("Trail search timed out. Try again later.")), 35_000);
   void (async () => {
     try {
-      const refreshed = await discoverHikes(controller.signal, endpoint);
-      discovery = mergeDiscovery(bundledDiscovery, refreshed);
+      const refreshed = await discoverHikes(controller.signal, siteRuntime.config.region.bounds, endpoint);
+      discovery = mergeDiscovery(bundledDiscovery, siteRuntime.config.region.bounds, refreshed);
       renderHikes();
       updateMap();
       get("hikes-state", HTMLParagraphElement).textContent = `Fetched ${new Date(discovery.retrievedAt).toLocaleString()}. Saving a local copy...`;
-      await writeDiscovery(refreshed);
+      await writeDiscovery(siteId, refreshed);
       get("hikes-state", HTMLParagraphElement).textContent = `Cached on this device / retrieved ${new Date(discovery.retrievedAt).toLocaleString()}. Not live conditions.`;
     } catch (error) {
       if (controller.signal.aborted && controller.signal.reason instanceof DOMException && controller.signal.reason.name === "AbortError") {
@@ -671,23 +682,42 @@ get("find-hikes", HTMLButtonElement).onclick = () => {
 
 updateMapSummary();
 get("hikes-state", HTMLParagraphElement).textContent = "Loading the bundled regional trail snapshot…";
-void import("./model/hikes.json").then(({ default: snapshot }) => {
-  bundledDiscovery = parseSnapshot(snapshot);
-  discovery = mergeDiscovery(bundledDiscovery, cachedDiscovery);
+Promise.resolve(siteRuntime.trails).then((snapshot) => {
+  bundledDiscovery = parseSnapshot(snapshot, siteRuntime.config.region.bounds);
+  return (async () => {
+    try {
+      const wasm = await import("../rust/pkg/adventure_analysis.js") as unknown as {
+        default: () => Promise<unknown>;
+        geo_clip_segments: (segments: string, bounds: string) => string;
+      };
+      await wasm.default();
+      const bounds = siteRuntime.config.region.bounds;
+      const clipped = JSON.parse(wasm.geo_clip_segments(
+        JSON.stringify(bundledDiscovery!.hikes.map((hike) => hike.segments)),
+        JSON.stringify([bounds[0][0], bounds[0][1], bounds[1][0], bounds[1][1]]),
+      )) as [number, number][][][];
+      bundledDiscovery = { ...bundledDiscovery!, hikes: bundledDiscovery!.hikes.map((hike, index) => ({ ...hike, segments: clipped[index] })) };
+    } catch (error) {
+      console.error("Rust trail clipping could not start; using the validated TypeScript clipping result.", error);
+    }
+  })();
+}).then(() => {
+  if (!bundledDiscovery) throw new Error("The site trail snapshot could not be loaded.");
+  discovery = mergeDiscovery(bundledDiscovery, siteRuntime.config.region.bounds, cachedDiscovery);
   discoveryReady = true;
   updateMapSummary();
   get("find-hikes", HTMLButtonElement).disabled = false;
-  if (hikesRendered) renderHikes();
+  if (hikesRendered || activeTab === "hikes") renderHikes();
   const cacheNote = cachedDiscovery ? ` / cached refresh ${new Date(cachedDiscovery.retrievedAt).toLocaleString()}` : "";
   get("hikes-state", HTMLParagraphElement).textContent = `${discovery.hikes.length} bundled mapped features / snapshot ${new Date(bundledDiscovery.retrievedAt).toLocaleString()}${cacheNote}. Available offline; not live conditions.`;
   updateMap();
 }).catch(report);
 perform(async () => {
-  const cached = await readDiscovery();
+  const cached = await readDiscovery(siteId);
   cachedDiscovery = cached;
   // An explicit search may finish before IndexedDB opens; do not overwrite fresh results.
   if (cached && bundledDiscovery && !discoveryRequest) {
-    discovery = mergeDiscovery(bundledDiscovery, cached);
+    discovery = mergeDiscovery(bundledDiscovery, siteRuntime.config.region.bounds, cached);
     updateMapSummary();
     if (hikesRendered) renderHikes();
     updateMap();
@@ -818,7 +848,7 @@ function syncPitchControl(): void {
 pitchControl.oninput = () => {
   if (!mapReady || !map) return;
   try {
-    applyCameraPitch(map, pitchControl.valueAsNumber);
+    applyCameraPitch(map, siteRuntime.config.region.bounds, pitchControl.valueAsNumber);
     syncPitchControl();
   } catch (error) {
     report(error);
@@ -844,7 +874,7 @@ get("terrain-toggle", HTMLButtonElement).onclick = () => {
   if (!mapReady || !map) return;
   try {
     const enabled = !terrainEnabled;
-    applyTerrainView(map, enabled, reducedMotion(), terrainExaggeration,
+    applyTerrainView(map, siteRuntime.config.region.bounds, enabled, reducedMotion(), terrainExaggeration,
       map.getPitch() > 0 ? map.getPitch() : TERRAIN_PITCH);
     terrainEnabled = enabled;
     updateTerrainButton();
@@ -861,16 +891,16 @@ try {
   mapboxglRuntime = mapboxModule.default;
   mapboxglRuntime.accessToken = await loadMapboxToken();
   map = new mapboxglRuntime.Map({
-    container: "map", style: "mapbox://styles/mapbox/outdoors-v12",
-    center: [-79.312, 39.505], zoom: 12,
-    maxBounds: REGION_BOUNDS,
+    container: "map", style: `mapbox://styles/mapbox/${siteRuntime.map.style}`,
+    center: siteRuntime.map.center, zoom: siteRuntime.map.zoom,
+    maxBounds: siteRuntime.config.region.bounds,
     pitch: TERRAIN_PITCH, bearing: 0, maxPitch: MAX_PITCH, scrollZoom: true,
     dragRotate: true, pitchWithRotate: true, touchPitch: true,
-    minZoom: regionMinZoom(get("map", HTMLDivElement).clientWidth, get("map", HTMLDivElement).clientHeight),
+    minZoom: regionMinZoom(siteRuntime.config.region.bounds, get("map", HTMLDivElement).clientWidth, get("map", HTMLDivElement).clientHeight),
   });
   map.once("load", () => get("map", HTMLDivElement).setAttribute("aria-busy", "false"));
   const updateZoomFloor = () => {
-    if (map) map.setMinZoom(terrainMinZoom(map.getContainer().clientWidth,
+    if (map) map.setMinZoom(terrainMinZoom(siteRuntime.config.region.bounds, map.getContainer().clientWidth,
       map.getContainer().clientHeight, map.getPitch()));
   };
   map.on("resize", updateZoomFloor);
@@ -882,7 +912,7 @@ try {
     console.error("Map resource error:", event.error);
     if (map && !map.isStyleLoaded()) get("map", HTMLDivElement).setAttribute("aria-busy", "false");
     if ("sourceId" in event && event.sourceId === TERRAIN_SOURCE && terrainEnabled && map) {
-      applyTerrainView(map, false, true);
+      applyTerrainView(map, siteRuntime.config.region.bounds, false, true);
       terrainEnabled = false;
       updateTerrainButton();
       mapNotice("Elevation terrain could not load. Returned to 2D; try 3D again while online.");
@@ -925,7 +955,7 @@ try {
     map.on("mouseenter", "parks", () => { if (map) map.getCanvas().style.cursor = "pointer"; });
     map.on("mouseleave", "parks", () => { if (map) map.getCanvas().style.cursor = ""; });
     mapReady = true;
-    if (terrainEnabled) applyTerrainView(map, true, true, terrainExaggeration, map.getPitch());
+    if (terrainEnabled) applyTerrainView(map, siteRuntime.config.region.bounds, true, true, terrainExaggeration, map.getPitch());
     updateTerrainButton();
     get("terrain-toggle", HTMLButtonElement).disabled = false;
     pitchControl.disabled = false;

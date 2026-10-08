@@ -1,302 +1,156 @@
-const fs = require("fs");
-const path = require("path");
+const escape = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+const SAFE_TAGS = new Set("a article aside blockquote br code dd details div dl dt em figcaption figure h2 h3 h4 h5 h6 hr li ol p section small span strong sub summary sup table tbody td th thead tr ul".split(" "));
+const VOID_TAGS = new Set(["br", "hr"]);
+const safeHref = (value) => /^(?:https?:\/\/|mailto:)/i.test(value) ||
+  (/^(?!\/\/)(?![a-z][a-z\d+.-]*:)[^\s"'<>\\]+$/i.test(value) &&
+    (value.startsWith("/") || value.startsWith("#") || value.startsWith("./") || !value.startsWith("\\")));
 
-const ROOT = path.resolve(__dirname, "..");
-const ARTICLE_DIR = path.join(ROOT, "content", "articles");
-const SITE_URL = "https://garrettcountyadventures.com";
-const ARTICLE_ORDER = [
-  "/things-to-do-garrett-county.html",
-  "/things-to-do-near-deep-creek-besides-the-lake.html",
-  "/first-time-deep-creek.html",
-  "/deep-creek-without-a-boat.html",
-  "/garrett-county-with-kids.html",
-  "/rainy-day-deep-creek.html",
-  "/swallow-falls.html",
-  "/oakland.html",
-  "/simon-pearce-glassblowing.html",
-  "/spruce-forest-artisan-village.html",
-  "/englanders-oakland.html",
-];
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[char]);
-}
-
-function isSafeHref(value) {
-  return /^(https?:\/\/|mailto:)/i.test(value) ||
-    (/^(?!\/\/)(?![a-z][a-z\d+.-]*:)[^\s"'<>]+$/i.test(value) &&
-      (value.startsWith("/") || value.startsWith("#") || !value.startsWith("\\")));
-}
-
-function field(frontmatter, name) {
-  const match = frontmatter.match(new RegExp(`^${name}:\\s*(.*)$`, "m"));
-  if (!match) return "";
-  const value = match[1].trim();
-  return value.replace(/^(["'])(.*)\1$/, "$2");
-}
-
-function records(frontmatter, sectionName) {
-  const lines = frontmatter.split(/\r?\n/);
-  const start = lines.findIndex((line) => new RegExp(`^${sectionName}:\\s*$`).test(line));
-  if (start < 0) return [];
-  const items = [];
-  for (const line of lines.slice(start + 1)) {
-    if (/^[a-z_]+:\s*/.test(line)) break;
-    const entry = line.match(/^\s*-\s+([a-z_]+):\s*(.*)$/);
-    if (entry) {
-      items.push({ [entry[1]]: entry[2].replace(/^(["'])(.*)\1$/, "$2") });
-      continue;
-    }
-    const property = line.match(/^\s+([a-z_]+):\s*(.*)$/);
-    if (property && items.length) items[items.length - 1][property[1]] = property[2].replace(/^(["'])(.*)\1$/, "$2");
-  }
-  return items;
-}
-
-function inlineMarkdown(value) {
-  let html = escapeHtml(value.replace(/&amp;/g, "&"));
-  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
-  html = html.replace(/\[([^\]]+)\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => {
-    const safeUrl = isSafeHref(url) ? url : "#";
-    const external = /^https?:/.test(safeUrl) ? ' target="_blank" rel="noopener noreferrer"' : "";
-    return `<a href="${escapeHtml(safeUrl)}"${external}>${label}</a>`;
+function inline(source) {
+  let result = escape(source);
+  result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
+  result = result.replace(/\[([^\]]+)\]\(([^\s)]+)(?:\s+"[^"]*")?\)/g, (_, label, url) => {
+    const href = safeHref(url) ? url : "#";
+    return `<a href="${escape(href)}"${/^https?:/i.test(href) ? ' target="_blank" rel="noopener noreferrer"' : ""}>${label}</a>`;
   });
-  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
-  html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
-  return html;
+  return result.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
 }
-
-function headingSlug(value) {
-  const plain = value.replace(/<[^>]*>/g, "").replace(/&amp;/g, "and").replace(/&[^;]+;/g, "");
-  return plain.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "section";
-}
-
-const SAFE_HTML_TAGS = new Set("a article aside blockquote br code dd details div dl dt em figcaption figure h2 h3 h4 h5 h6 hr li ol p section small span strong sub summary sup table tbody td th thead tr ul".split(" "));
-const SAFE_HTML_VOID_TAGS = new Set(["br", "hr"]);
 
 function sanitizeHtml(html) {
   const safeBlocks = html.replace(/<(script|style|iframe|object|embed|svg|math|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
-  return safeBlocks.replace(/<!--[\s\S]*?-->|<\/?([a-z][\w-]*)(\s[^<>]*?)?>/gi, (tag, name, rawAttributes = "") => {
-    if (!name) return "";
-    const tagName = name.toLowerCase();
-    if (!SAFE_HTML_TAGS.has(tagName)) return "";
-    if (tag.startsWith("</")) return SAFE_HTML_VOID_TAGS.has(tagName) ? "" : `</${tagName}>`;
+  return safeBlocks.replace(/<!--[^]*?-->|<\/?([a-z][\w-]*)(\s[^<>]*?)?>/gi, (tag, rawName, rawAttributes = "") => {
+    if (!rawName) return "";
+    const name = rawName.toLowerCase();
+    if (!SAFE_TAGS.has(name)) return "";
+    if (tag.startsWith("</")) return VOID_TAGS.has(name) ? "" : `</${name}>`;
     const attributes = [];
     const matcher = /([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
     let match;
     while ((match = matcher.exec(rawAttributes))) {
-      const key = match[1].toLowerCase();
-      const value = match[2] ?? match[3] ?? match[4] ?? "";
-      if (!(key === "class" || key === "id" || key === "role" || key === "scope" || key === "colspan" || key === "rowspan" || key === "target" || key === "rel" || key.startsWith("aria-"))) continue;
-      if (key === "target" && value !== "_blank" && value !== "_self") continue;
-      attributes.push(`${key}="${escapeHtml(value)}"`);
+      const key = match[1].toLowerCase(); const value = match[2] ?? match[3] ?? match[4] ?? "";
+      if (!(key === "class" || key === "id" || key === "role" || key === "scope" || key === "colspan" || key === "rowspan" || key.startsWith("aria-"))) continue;
+      attributes.push(`${key}="${escape(value)}"`);
     }
     const href = rawAttributes.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i);
-    if (tagName === "a" && href) {
+    if (name === "a" && href) {
       const value = href[1] ?? href[2] ?? href[3] ?? "";
-      if (isSafeHref(value)) attributes.push(`href="${escapeHtml(value)}"`);
+      if (safeHref(value)) attributes.push(`href="${escape(value)}"`);
     }
-    if (attributes.includes('target="_blank"') && !attributes.some((attribute) => attribute.startsWith("rel="))) attributes.push('rel="noopener noreferrer"');
-    return `<${tagName}${attributes.length ? ` ${attributes.join(" ")}` : ""}>`;
+    return `<${name}${attributes.length ? ` ${attributes.join(" ")}` : ""}>`;
   });
 }
 
-function renderMarkdown(markdown) {
-  const source = markdown
-    .replace(/\{%\s*photo\b[\s\S]*?%\}/g, "")
-    .replace(/^\s*\[PHOTO:[^\]]*\]\s*$/gm, "")
-    .trim();
-  const lines = source.split(/\r?\n/);
+function markdown(source) {
+  const lines = source.replace(/\{\%\s*photo\b[\s\S]*?%\}/g, "").split(/\r?\n/);
   const output = [];
-  const headingCounts = new Map();
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i].trim();
-    if (!line) { i++; continue; }
-    const heading = line.match(/^(#{1,6})\s+(.+?)\s*#*$/);
-    if (heading) {
-      const level = Math.min(heading[1].length + 1, 6);
-      const title = inlineMarkdown(heading[2]);
-      const baseSlug = headingSlug(title);
-      const count = (headingCounts.get(baseSlug) || 0) + 1;
-      headingCounts.set(baseSlug, count);
-      const id = count === 1 ? baseSlug : `${baseSlug}-${count}`;
-      output.push(`<h${level} id="${id}">${title}</h${level}>`);
-      i++; continue;
+  for (let index = 0; index < lines.length;) {
+    const text = lines[index].trim();
+    if (!text) { index++; continue; }
+    const heading = text.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) { const level = Math.min(heading[1].length + 1, 6); output.push(`<h${level}>${inline(heading[2])}</h${level}>`); index++; continue; }
+    if (/^<\/?[a-z][\w-]*\b/i.test(text)) {
+      const block = [lines[index++]];
+      while (index < lines.length && lines[index].trim()) block.push(lines[index++]);
+      output.push(sanitizeHtml(block.join("\n"))); continue;
     }
-    if (/^<\/?(p|div|figure|table|ul|ol|blockquote|details|section|aside|hr)\b/i.test(line)) {
-      const block = [line];
-      i++;
-      while (i < lines.length && lines[i].trim()) block.push(lines[i++].trim());
-      output.push(block.join("\n"));
-      continue;
-    }
-    if (/^([-*_])\1\1+\s*$/.test(line)) { output.push("<hr>"); i++; continue; }
-    if (/^>\s?/.test(line)) {
-      const quote = [];
-      while (i < lines.length && /^\s*>/.test(lines[i])) quote.push(lines[i++].replace(/^\s*>\s?/, ""));
-      output.push(`<blockquote><p>${inlineMarkdown(quote.join(" "))}</p></blockquote>`);
-      continue;
-    }
-    const listMatch = line.match(/^\s*([-*+]\s+|\d+[.)]\s+)/);
-    if (listMatch) {
-      const ordered = /^\d/.test(listMatch[1]);
-      const tag = ordered ? "ol" : "ul";
-      const items = [];
-      while (i < lines.length) {
-        const item = lines[i].trim().match(/^([-*+]\s+|\d+[.)]\s+)(.+)$/);
-        if (!item || (/^\d/.test(item[1]) !== ordered)) break;
-        items.push(`<li>${inlineMarkdown(item[2])}</li>`);
-        i++;
+    const list = text.match(/^([-*+]\s+|\d+[.)]\s+)/);
+    if (list) {
+      const ordered = /^\d/.test(list[1]); const tag = ordered ? "ol" : "ul"; const items = [];
+      while (index < lines.length) {
+        const item = lines[index].trim().match(/^([-*+]\s+|\d+[.)]\s+)(.+)$/);
+        if (!item || /^\d/.test(item[1]) !== ordered) break;
+        items.push(`<li>${inline(item[2])}</li>`); index++;
       }
-      output.push(`<${tag}>${items.join("")}</${tag}>`);
-      continue;
+      output.push(`<${tag}>${items.join("")}</${tag}>`); continue;
     }
-    if (line.startsWith("|") && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i + 1])) {
-      const rows = [];
-      while (i < lines.length && lines[i].trim().startsWith("|")) {
-        rows.push(lines[i++].trim().split("|").slice(1, -1).map((cell) => cell.trim()));
-      }
-      const header = rows.shift() || [];
-      rows.shift();
-      output.push(`<table><thead><tr>${header.map((cell) => `<th scope="col">${inlineMarkdown(cell)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${inlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table>`);
-      continue;
-    }
-    const paragraph = [line];
-    i++;
-    while (i < lines.length && lines[i].trim() &&
-      !/^(#{1,6}\s|[-*_]{3,}\s*$|>\s?|\s*([-*+]\s+|\d+[.)]\s+)|<\/?(p|div|figure|table|ul|ol|blockquote|details|section|aside|hr)\b)/.test(lines[i])) {
-      paragraph.push(lines[i++].trim());
-    }
-    output.push(`<p>${inlineMarkdown(paragraph.join(" "))}</p>`);
+    const paragraph = [text]; index++;
+    while (index < lines.length && lines[index].trim() && !/^(#{1,6}\s|[-*+]\s+|\d+[.)]\s+|<\/?[a-z][\w-]*\b)/i.test(lines[index].trim())) paragraph.push(lines[index++].trim());
+    output.push(`<p>${inline(paragraph.join(" "))}</p>`);
   }
-  return sanitizeHtml(output.join("\n"));
+  return output.join("\n");
 }
 
-function readArticles() {
-  return fs.readdirSync(ARTICLE_DIR).filter((name) => name.endsWith(".md")).map((name) => {
-    const source = fs.readFileSync(path.join(ARTICLE_DIR, name), "utf8");
-    const sections = source.split(/^---\s*$/m);
-    if (sections.length < 3) throw new Error(`Missing YAML front matter: ${name}`);
-    const frontmatter = sections[1];
-    const body = sections.slice(2).join("---").trim();
-    const title = field(frontmatter, "title");
-    const description = field(frontmatter, "description") || field(frontmatter, "dek");
-    const permalink = field(frontmatter, "permalink");
-    const lastChecked = field(frontmatter, "last_checked");
-    if (!title || !description || !/^\/[\w-]+\.html$/.test(permalink)) {
-      throw new Error(`Article needs title, description, and a root .html permalink: ${name}`);
+function pageContext(outputName) {
+  const depth = outputName.split("/").length - 1;
+  return { outputName, rootPrefix: depth === 0 ? "./" : "../".repeat(depth) };
+}
+
+function rootHref(href, context) {
+  if (href === "/") return context.rootPrefix;
+  if (href.startsWith("/")) return `${context.rootPrefix}${href.slice(1)}`;
+  if (href.startsWith("./")) return `${context.rootPrefix}${href.slice(2)}`;
+  return href;
+}
+
+function card(item, label = "READ THE STORY", variant = "default", context = pageContext("index.html")) {
+  const image = variant === "image-cards" && item.fields.image
+    ? `<img class="guide-card-image" src="${escape(item.fields.image)}" alt="${escape(item.fields.imageAlt || item.title)}" loading="lazy">`
+    : "";
+  return `<article class="guide-card${image ? " guide-card--image" : ""}">${image}<div class="guide-card-copy"><h3><a href="${escape(`${context.rootPrefix}${encodeURIComponent(item.id)}.html`)}">${escape(item.title)}</a></h3><p>${escape(item.description)}</p><span>${escape(label)}</span></div></article>`;
+}
+
+function documentHead(site, context = pageContext("index.html"), title = site.config.seo.title, description = site.config.seo.description, canonical = site.config.canonicalUrl) {
+  const url = canonical ? `<link rel="canonical" href="${escape(canonical)}">` : "";
+  return `<!doctype html><html lang="${escape(site.config.locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="application-name" content="${escape(site.config.name)}"><meta name="description" content="${escape(description)}"><meta name="theme-color" content="${escape(site.config.pwa.themeColor)}">${url}<link rel="stylesheet" href="${context.rootPrefix}site.css"><link rel="manifest" href="${context.rootPrefix}manifest.webmanifest"><title>${escape(title)}</title><script defer src="${context.rootPrefix}site.js"></script></head>`;
+}
+
+function navigation(site, context) {
+  return site.navigation.items.map((item) => `<a href="${escape(rootHref(item.href, context))}">${escape(item.label)}</a>`).join("");
+}
+
+function renderSection(site, section, context) {
+  const props = section.props || {};
+  switch (section.component) {
+    case "hero": {
+      const variant = props.variant || "default";
+      const image = props.image
+        ? `<img class="hero-landscape" src="${escape(props.image)}" alt="${escape(props.imageAlt)}">`
+        : "";
+      return `<section class="home-hero hero-variant-${escape(variant)}">${image}<div class="hero-copy"><p class="hero-kicker">${escape(props.eyebrow || site.config.region.name)}</p><h1>${escape(props.title || site.config.name)}</h1><p>${escape(props.description || site.config.description)}</p></div></section>`;
     }
-    return {
-      title, description, permalink, lastChecked,
-      related: records(frontmatter, "related"), sources: records(frontmatter, "sources"),
-      body: renderMarkdown(body),
-    };
-  }).sort((a, b) => {
-    const aOrder = ARTICLE_ORDER.indexOf(a.permalink);
-    const bOrder = ARTICLE_ORDER.indexOf(b.permalink);
-    return (aOrder < 0 ? Number.MAX_SAFE_INTEGER : aOrder) - (bOrder < 0 ? Number.MAX_SAFE_INTEGER : bOrder) || a.title.localeCompare(b.title);
+    case "guide-collection": {
+      const collection = site.collections[props.collection];
+      const items = collection.items.map((id) => site.content.find((entry) => entry.id === id)).filter(Boolean);
+      const variant = props.variant || "default";
+      return `<section class="content-section collection-${escape(variant)}"><header class="section-heading"><div><p class="eyebrow">${escape(collection.label || "EXPLORE")}</p><h2>${escape(collection.title)}</h2></div></header><div class="guide-grid guide-grid--${escape(variant)}">${items.map((item) => card(item, collection.title, variant, context)).join("")}</div></section>`;
+    }
+    case "feature-gallery":
+      return `<section class="content-section"><h2>${escape(props.title || "Places to explore")}</h2><div class="guide-grid">${site.places.map((place) => `<article class="guide-card"><h3>${escape(place.name)}</h3><p>${escape(place.description)}</p></article>`).join("")}</div></section>`;
+    case "install-prompt":
+      return `<section class="content-section" id="install-prompt"><h2>Take ${escape(site.config.pwa.shortName)} with you</h2><p>${escape(site.config.pwa.description)}</p><button id="install-app" type="button">Install the app</button><p id="install-status" role="status"></p></section>`;
+    default:
+      throw new Error(`Unsupported page component '${section.component}'.`);
+  }
+}
+
+function buildSite(site) {
+  const home = site.pages.home || Object.values(site.pages).find((page) => page.route === "/");
+  if (!home) throw new Error("Site pages must define a home page at '/'.");
+  const homeContext = pageContext("index.html");
+  const exploreContext = pageContext("explore.html");
+  const homeHtml = `${documentHead(site, homeContext)}<body class="home-page"><a class="skip-link" href="#main">Skip to content</a><header class="site-header"><a class="site-brand" href="${homeContext.rootPrefix}">${escape(site.config.name)}</a><nav class="site-nav" aria-label="Main navigation">${navigation(site, homeContext)}</nav></header><main id="main">${home.sections.map((section) => renderSection(site, section, homeContext)).join("\n")}</main><footer class="site-footer"><span>${escape(site.config.publisher?.name || site.config.name)}</span></footer></body></html>`;
+  const exploreHtml = `${documentHead(site, exploreContext, `${site.config.region.name} map`, site.config.description)}<body class="explore-page"><header class="site-header"><a class="site-brand" href="${exploreContext.rootPrefix}">${escape(site.config.name)}</a><nav class="site-nav">${navigation(site, exploreContext)}</nav></header><main><div id="app" aria-label="Interactive ${escape(site.config.region.name)} map"></div></main><footer class="site-footer"><a href="${exploreContext.rootPrefix}">${escape(site.config.name)}</a></footer><noscript><p>The map requires JavaScript. Browse the guides from the home page.</p></noscript><script type="module" src="./src/app.ts"></script></body></html>`;
+  const pages = site.content.map((item) => {
+    const canonical = site.config.canonicalUrl ? `${site.config.canonicalUrl.replace(/\/$/, "")}/${encodeURIComponent(item.id)}.html` : undefined;
+    const context = pageContext(`${item.id}.html`);
+    const source = `${documentHead(site, context, item.title, item.description || site.config.seo.description, canonical)}<body class="editorial-page"><header class="editorial-header"><a href="${context.rootPrefix}">${escape(site.config.name)}</a><nav>${navigation(site, context)}</nav></header><main class="article-main"><header class="article-hero"><p class="eyebrow">${escape(site.config.region.name)}</p><h1>${escape(item.title)}</h1><p>${escape(item.description)}</p></header><article class="guide-article">${markdown(item.body)}</article></main></body></html>`;
+    return { name: `${item.id}.html`, route: `/${item.id}.html`, source };
   });
-}
-
-function articlePage(article) {
-  const canonical = `${SITE_URL}${article.permalink}`;
-  const checkedDate = new Date(article.lastChecked);
-  const checkedIso = Number.isNaN(checkedDate.getTime()) ? "" : checkedDate.toISOString().slice(0, 10);
-  const structuredData = {
-    "@context": "https://schema.org", "@type": "Article", headline: article.title,
-    description: article.description, mainEntityOfPage: canonical,
-    author: { "@type": "Organization", name: "Garrett County Adventures" },
-    publisher: { "@type": "Organization", name: "Garrett County Adventures", url: SITE_URL },
-    inLanguage: "en-US",
-  };
-  if (checkedIso) structuredData.dateModified = checkedIso;
-  const related = article.related.filter((item) => item.title && /^[\w-]+\.html$/.test(item.url || ""));
-  const relatedHtml = related.length ? `<aside class="related-guides"><h2>Related Garrett County guides</h2>${related.map((item) => `<a class="related-guide" href="./${escapeHtml(item.url)}"><strong>${escapeHtml(item.title)}</strong>${item.description ? `<span>${escapeHtml(item.description)}</span>` : ""}</a>`).join("")}</aside>` : "";
-  const sources = article.sources.filter((item) => item.label);
-  const sourcesHtml = sources.length ? `<details class="source-list"><summary>Sources and planning links</summary><ul>${sources.map((item) => `<li>${/^https:\/\//.test(item.url || "") ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.label)}</a>` : escapeHtml(item.label)}</li>`).join("")}</ul><p>Hours, access, and seasonal activities can change. Check current details with the listed organization before your visit.</p></details>` : "";
-  const sections = [...article.body.matchAll(/<h3 id="([^"]+)">([\s\S]*?)<\/h3>/g)];
-  const contentsHtml = sections.length > 2 ? `<details class="article-contents"><summary>In this guide <span>${sections.length} sections</span></summary><nav aria-label="On this page">${sections.map((match) => `<a href="#${escapeHtml(match[1])}">${match[2]}</a>`).join("")}</nav></details>` : "";
-  const wordCount = article.body.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length;
-  const readMinutes = Math.max(1, Math.ceil(wordCount / 220));
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#203a31">
-  <meta name="color-scheme" content="light dark">
-  <meta name="description" content="${escapeHtml(article.description)}">
-  <link rel="canonical" href="${canonical}">
-  <link rel="stylesheet" href="./site.css">
-  <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="icon" href="./images/gcadv-logo.png" type="image/png">
-  <script defer src="./site.js"></script>
-  <title>${escapeHtml(article.title)}</title>
-  <meta property="og:type" content="article">
-  <meta property="og:site_name" content="Garrett County Adventures">
-  <meta property="og:title" content="${escapeHtml(article.title)}">
-  <meta property="og:description" content="${escapeHtml(article.description)}">
-  <meta property="og:url" content="${canonical}">
-  <script type="application/ld+json">${JSON.stringify(structuredData)}</script>
-</head>
-<body class="editorial-page">
-  <header class="editorial-header"><a class="editorial-brand" href="./" aria-label="Garrett County Adventures home">Garrett County Adventures</a><nav aria-label="Main navigation"><a href="./#trip-guides">Trip guides</a><a href="./#about-gcadv">About</a></nav></header>
-  <main class="article-main">
-    <header class="article-hero"><div class="article-hero-inner"><nav class="breadcrumbs" aria-label="Breadcrumb"><a href="./">Home</a><span aria-hidden="true">/</span><a href="./#trip-guides">Garrett County Guides</a><span aria-hidden="true">/</span><span aria-current="page">${escapeHtml(article.title)}</span></nav><p class="eyebrow">A GARRETT COUNTY FIELD GUIDE</p><h1>${escapeHtml(article.title)}</h1><p class="article-dek">${escapeHtml(article.description)}</p><p class="article-meta"><span>${readMinutes} MIN READ</span>${checkedIso ? `<span>UPDATED <time datetime="${checkedIso}">${escapeHtml(article.lastChecked)}</time></span>` : "<span>WESTERN MARYLAND</span>"}</p></div></header>
-  <div class="article-layout${contentsHtml ? "" : " no-contents"}">${contentsHtml}<article class="guide-article">
-      <div class="article-body">${article.body}</div>
-      ${relatedHtml}
-      ${sourcesHtml}
-      <aside class="article-install"><h2>Keep planning wherever you go</h2><p>Add the guides and saved trip details to your home screen. Some guide and trail information is available offline; map tiles need an internet connection.</p><button id="install-app" class="button button-primary" type="button">Install the app</button><details class="install-help"><summary>How to add it on this device</summary><p>On Windows, use the Install app button in Chrome or Edge’s address bar or menu. On Mac in Safari, choose File &gt; Add to Dock. On iPhone or iPad, open this page in Safari, tap Share, then choose Add to Home Screen. On Android, open your browser menu and choose Install app or Add to Home Screen.</p></details><p id="install-status" class="install-status" role="status"></p></aside>
-    </article>
-    <footer class="editorial-footer"><a href="./#trip-guides">Browse all trip guides</a><span>Built with &lt;3 by <a href="https://mnix.dev">Mikey Nichols</a></span><a href="./explore.html">Open the adventure map</a></footer>
-  </main>
-</body>
-</html>`;
-}
-
-function buildSite() {
-  const articles = readArticles();
-  const cardDesigns = {
-    "/things-to-do-garrett-county.html": ["ridge", "⌁", "local-finds-background.webp"],
-    "/things-to-do-near-deep-creek-besides-the-lake.html": ["water", "≈", "herrington-manor.webp"],
-    "/first-time-deep-creek.html": ["compass", "✧", "hoye-crest.webp"],
-    "/deep-creek-without-a-boat.html": ["water", "◌"],
-    "/garrett-county-with-kids.html": ["wildlife", "❋", "deer-sky-valley.webp"],
-    "/rainy-day-deep-creek.html": ["rain", "☂"],
-    "/swallow-falls.html": ["falls", "≋", "install-stream.webp"],
-    "/simon-pearce-glassblowing.html": ["craft", "✦"],
-    "/spruce-forest-artisan-village.html": ["forest", "❧"],
-    "/englanders-oakland.html": ["town", "⌂"],
-    "/oakland.html": ["rail", "↝"],
-  };
-  const card = (article, label) => {
-    const [theme, mark, photo] = cardDesigns[article.permalink] || ["forest", "✧"];
-    const title = escapeHtml(article.title);
-    const description = escapeHtml(article.description);
-    const href = `.${article.permalink}`;
-    const artMark = photo ? "" : `<span>${mark}</span>`;
-    return `<article class="guide-card guide-card--${theme}${photo ? " guide-card--photo" : ""}"${photo ? ` style="--guide-card-image:url('/images/${photo}')"` : ""}><div class="guide-card-inner"><div class="guide-card-side guide-card-front"><div class="guide-card-art" aria-hidden="true">${artMark}</div><div class="guide-card-copy"><p class="guide-card-label">${label}</p><h3>${title}</h3><p>${description}</p><a class="guide-card-front-link" href="${href}">Read the guide <span aria-hidden="true">→</span></a></div></div><div class="guide-card-side guide-card-back"><p class="guide-card-label">${label}</p><h3>${title}</h3><p>${description}</p><a class="guide-card-link" href="${href}">Read the guide <span aria-hidden="true">→</span></a></div></div></article>`;
-  };
-  const planningSlugs = new Set([
-    "/things-to-do-garrett-county.html", "/things-to-do-near-deep-creek-besides-the-lake.html",
-    "/first-time-deep-creek.html", "/deep-creek-without-a-boat.html",
-    "/garrett-county-with-kids.html", "/rainy-day-deep-creek.html",
-  ]);
-  const planningCards = articles.filter((article) => planningSlugs.has(article.permalink)).map((article) => card(article, "PLAN YOUR TRIP")).join("\n");
-  const localCards = articles.filter((article) => !planningSlugs.has(article.permalink)).map((article) => card(article, "LOCAL DISCOVERY")).join("\n");
-  const homeCards = `${planningCards}\n${localCards}`;
-  const pages = articles.map((article) => ({ name: article.permalink.slice(1), source: articlePage(article) }));
-  pages.push({ name: "sitemap.xml", source: `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${[
-    `${SITE_URL}/`, `${SITE_URL}/explore.html`, ...articles.map((article) => `${SITE_URL}${article.permalink}`),
-  ].map((url) => `  <url><loc>${escapeHtml(url)}</loc></url>`).join("\n")}\n</urlset>\n` });
-  pages.push({ name: "robots.txt", source: `User-agent: *\nAllow: /\nSitemap: ${SITE_URL}/sitemap.xml\n` });
-  return { articles, homeCards, planningCards, localCards, pages };
+  for (const [id, page] of Object.entries(site.pages)) {
+    if (page === home || page.route === "/") continue;
+    const name = page.route.endsWith("/") ? `${page.route.slice(1)}index.html` : page.route.slice(1);
+    const context = pageContext(name);
+    const canonical = site.config.canonicalUrl ? `${site.config.canonicalUrl.replace(/\/$/, "")}${page.route}` : undefined;
+    const source = `${documentHead(site, context, page.sections.find((section) => section.component === "hero")?.props?.title || site.config.seo.title,
+      site.config.seo.description, canonical)}<body class="home-page"><header class="site-header"><a class="site-brand" href="${context.rootPrefix}">${escape(site.config.name)}</a><nav class="site-nav">${navigation(site, context)}</nav></header><main>${page.sections.map((section) => renderSection(site, section, context)).join("\n")}</main><footer class="site-footer">${escape(site.config.publisher?.name || site.config.name)}</footer></body></html>`;
+    pages.push({ name, route: page.route, source, id });
+  }
+  const base = site.config.canonicalUrl?.replace(/\/$/, "");
+  if (base) {
+    const configuredUrls = Object.values(site.pages).filter((page) => page.route !== "/").map((page) => `${base}${page.route}`);
+    pages.push({ name: "sitemap.xml", source: `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${[`${base}/`, `${base}/explore.html`, ...configuredUrls, ...site.content.map((item) => `${base}/${encodeURIComponent(item.id)}.html`)].map((url) => `  <url><loc>${escape(url)}</loc></url>`).join("\n")}\n</urlset>\n` });
+    pages.push({ name: "robots.txt", source: `User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n` });
+  }
+  return { homeHtml, exploreHtml, pages, planningCards: "", localCards: "", homeCards: "" };
 }
 
 module.exports = { buildSite };
