@@ -1,1 +1,9 @@
-:root { --cms-accent: #df8952; --cms-background: #f5f2e8; --cms-text: #263c32; }
+:root { --cms-accent: #df8952; --cms-background: #f5f2e8; --cms-text: #263c32; --page: #f5f2e8; --ink: #263c32; --leaf: #a84f28; --gold: #df8952; --surface: #fffdf7; --surface-raised: #fff; --surface-soft: #ebe4d8; --muted: #665e55; --line: #d8c8b7; --focus: #9c3f20; font-family: Georgia, 'Times New Roman', serif; }
+.topbar { background: #352b45; }
+.sidebar { background: #f5f2e8; }
+.tabs button[aria-pressed='true'], .button.primary { border-color: #a84f28; background: #a84f28; }
+.home-hero { background: linear-gradient(125deg, #352b45, #72506c 68%, #df8952); }
+.home-hero h1, .editorial-page h1, .section-heading h2 { font-family: Georgia, 'Times New Roman', serif; letter-spacing: -.025em; }
+.guide-card { border-radius: 1.1rem; box-shadow: 0 10px 30px #352b4518; }
+.site-header, .site-footer { background: #352b45; color: #f5f2e8; }
+.site-header a, .site-footer a { color: #fff; }

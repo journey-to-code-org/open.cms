@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,8 +23,9 @@ function writeJson(root: string, file: string, value: unknown): void {
   writeFileSync(path.join(root, file), `${JSON.stringify(value)}\n`);
 }
 
-test("pure parsers validate loaded Garrett and demo config without filesystem context", () => {
-  for (const id of ["garrett-county", "demo-region"]) {
+test("pure parsers validate available site configs without filesystem context", () => {
+  const ids = ["demo-region", ...(existsSync(path.resolve("sites/garrett-county")) ? ["garrett-county"] : [])];
+  for (const id of ids) {
     const root = path.resolve("sites", id);
     const manifest = parseSiteManifest(readJson(root, "manifest.json"));
     const site = parseSiteConfig(readJson(root, "site.json"));
@@ -35,11 +36,9 @@ test("pure parsers validate loaded Garrett and demo config without filesystem co
 });
 
 test("loaded runtime normalizes both packages and drives static identity and content", () => {
-  const garrett = loadSitePackage(path.resolve("sites/garrett-county"));
   const demo = loadSitePackage(path.resolve("sites/demo-region"));
-  assert.equal(garrett.places.length, 16);
-  assert.equal(garrett.places[0].name, "Swallow Falls State Park");
-  assert.ok(Array.isArray(garrett.places[0].activities));
+  const garrettRoot = path.resolve("sites/garrett-county");
+  const garrett = existsSync(garrettRoot) ? loadSitePackage(garrettRoot) : undefined;
   assert.equal(demo.places.length, 3);
   assert.equal(demo.places[0].name, "Juniper Overlook");
   assert.equal(demo.trails.hikes.length, 0);
@@ -50,19 +49,37 @@ test("loaded runtime normalizes both packages and drives static identity and con
   assert.match(output.pages.find((page: { name: string }) => page.name === "sitemap.xml").source, /pine-hollow\.example/);
   assert.ok(output.pages.some((page: { name: string }) => page.name === "fern-creek.html"));
   assert.doesNotMatch(output.homeHtml, /Garrett|Deep Creek|Maryland/);
+  assert.match(demo.themeCss, /#352b45/);
+  if (garrett) {
+    assert.equal(garrett.places.length, 16);
+    assert.equal(garrett.places[0].name, "Swallow Falls State Park");
+    assert.ok(Array.isArray(garrett.places[0].activities));
+    assert.match(garrett.themeCss, /\.home-hero/);
+    assert.notEqual(garrett.themeCss, demo.themeCss);
+    assert.equal(garrett.config.explorer?.eyebrow, "THE GREAT OUTDOORS, CLOSE TO HOME");
+    assert.notEqual(demo.config.explorer?.eyebrow, garrett.config.explorer?.eyebrow);
+  }
   const untrusted = { ...demo, content: [{ ...demo.content[0], body: "<script>alert(1)</script><p onclick=\"run()\">Safe text</p><a href=\"javascript:alert(2)\">Bad link</a>" }] };
   const untrustedPage = buildSite(untrusted).pages.find((page: { name: string }) => page.name === `${demo.content[0].id}.html`).source;
   assert.doesNotMatch(untrustedPage, /<script>alert|onclick=|href="javascript:/);
   assert.match(untrustedPage, /Safe text/);
 });
 
-test("active-site arguments accept package paths, default to demo, and reject missing or escaping paths", () => {
+test("active-site arguments accept package paths outside the engine checkout", () => {
   assert.equal(activeSiteFromArgs([]), path.resolve("sites/demo-region"));
-  assert.equal(activeSiteFromArgs(["--site", "./sites/garrett-county"]), path.resolve("sites/garrett-county"));
+  if (existsSync(path.resolve("sites/garrett-county"))) assert.equal(activeSiteFromArgs(["--site", "./sites/garrett-county"]), path.resolve("sites/garrett-county"));
   assert.equal(activeSiteFromArgs(["--site=sites/demo-region"]), path.resolve("sites/demo-region"));
-  assert.equal(activeSiteFromArgs(["./sites/garrett-county"]), path.resolve("sites/garrett-county"));
+  if (existsSync(path.resolve("sites/garrett-county"))) assert.equal(activeSiteFromArgs(["./sites/garrett-county"]), path.resolve("sites/garrett-county"));
   assert.throws(() => activeSiteFromArgs(["--site"]), /requires a package directory/);
-  assert.throws(() => activeSiteFromArgs(["--site", "../outside"]), /stay inside this repository/);
+  const externalSite = temporarySite();
+  try {
+    const selected = activeSiteFromArgs(["--site", path.relative(process.cwd(), externalSite)]);
+    assert.equal(selected, path.resolve(externalSite));
+    const loaded = loadSitePackage(selected);
+    assert.equal(loaded.config.name, "Pine Hollow Field Guide");
+    const generated = buildSite(loaded);
+    assert.match(generated.homeHtml, /Pine Hollow Field Guide/);
+  } finally { rmSync(path.dirname(externalSite), { recursive: true, force: true }); }
 });
 
 test("navigation rejects executable and protocol-relative links", () => {
@@ -102,11 +119,19 @@ test("Node package loader rejects absolute, traversal, missing, wrong-kind and s
   assert.throws(() => validateSitePackage(root), /safe relative path/);
   writeJson(root, "manifest.json", { ...manifest, places: "../places.geojson" });
   assert.throws(() => validateSitePackage(root), /safe relative path/);
+  writeJson(root, "manifest.json", { ...manifest, themeCss: "../theme.css" });
+  assert.throws(() => validateSitePackage(root), /themeCss.*safe relative path/);
   writeJson(root, "manifest.json", { ...manifest, places: "missing/places.geojson" });
   assert.throws(() => validateSitePackage(root), /Missing package entry/);
   writeJson(root, "manifest.json", { ...manifest, assets: "manifest.json" });
   assert.throws(() => validateSitePackage(root), /wrong kind/);
   writeJson(root, "manifest.json", manifest);
+
+  const themeFile = path.join(root, manifest.themeCss.replace(/^\.\//, ""));
+  const originalTheme = readFileSync(themeFile, "utf8");
+  writeFileSync(themeFile, ".x { background: url(https://example.invalid/x); }");
+  assert.throws(() => loadSitePackage(root), /cannot import styles or reference external resources/);
+  writeFileSync(themeFile, originalTheme);
 
   const outside = path.join(path.dirname(root), "outside-assets");
   mkdirSync(outside);

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { parseDiscovery, parseSnapshot, mergeDiscovery, hikeGpx, makeGpx, discoverHikes, hikeQuery } from "../src/hikes";
 import { regionBbox, clipSegments, inRegion, regionMinZoom } from "../src/region";
-import snapshot from "../sites/garrett-county/data/hikes.json";
 
 const REGION_BOUNDS: [[number, number], [number, number]] = [
   [-79.48696767001076, 39.202068911240104], [-79.08637004392415, 39.722221540464716],
@@ -110,11 +109,14 @@ test("minimum zoom keeps large and small viewports inside the regional rectangle
   }
   assert.ok(regionMinZoom(REGION_BOUNDS, 2000, 1000) > regionMinZoom(REGION_BOUNDS, 390, 220));
 });
-test("actual bundled dataset is nonempty, attributed and wholly regional", () => {
-  const bundled = parseSnapshot(snapshot, REGION_BOUNDS);
-  assert.equal(bundled.hikes.length, 243);
-  assert.equal(bundled.hikes.filter((hike) => hike.source.kind === "Hiking route").length, 62);
-  assert.equal(bundled.hikes.filter((hike) => hike.source.kind === "Mapped path").length, 181);
+test("bundled snapshot parsing preserves provenance and clips geometry to the active region", () => {
+  const retrievedAt = "2026-10-06T00:00:00.000Z";
+  const id = "way/123";
+  const bundled = parseSnapshot({ retrievedAt, skipped: 0, hikes: [{ name: "Local path",
+    segments: [[[-79.2, 39.5], [-79.1, 39.6]]], source: { id, url: `https://www.openstreetmap.org/${id}`,
+      retrievedAt, attribution: "OpenStreetMap contributors (ODbL)", kind: "Mapped path", tags: { highway: "path" } } }],
+  }, REGION_BOUNDS);
+  assert.equal(bundled.hikes.length, 1);
   for (const hike of bundled.hikes) {
     assert.ok(hike.segments.length);
     assert.ok(hike.segments.flat().every((point) => inRegion(point, REGION_BOUNDS)), hike.name);

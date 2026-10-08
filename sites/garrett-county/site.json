@@ -3,6 +3,14 @@
   "name": "Garrett County Adventures",
   "shortName": "GC Adventures",
   "description": "Local guides and outdoor discovery for Garrett County, Maryland.",
+  "explorer": {
+    "headerCaption": "Less scrolling. More exploring.",
+    "mapCaption": "Your next adventure starts here.",
+    "eyebrow": "THE GREAT OUTDOORS, CLOSE TO HOME",
+    "heading": "Find your kind of adventure.",
+    "description": "Waterfalls, quiet lakes, and mountain views. Pick a place and make a day of it.",
+    "searchPlaceholder": "Try waterfalls or camping"
+  },
   "canonicalUrl": "https://garrettcountyadventures.com",
   "locale": "en-US",
   "publisher": {

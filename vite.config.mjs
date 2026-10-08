@@ -57,7 +57,7 @@ function sitePlugin(command, environment, loadedSite) {
       return `export default ${JSON.stringify({
         manifest: loadedSite.manifest, config: loadedSite.config, navigation: loadedSite.navigation,
         pages: loadedSite.pages, collections: loadedSite.collections, places: loadedSite.places,
-        trails: loadedSite.trails, map: loadedSite.map, theme: loadedSite.theme,
+        trails: loadedSite.trails, map: loadedSite.map, theme: loadedSite.theme, themeCss: loadedSite.themeCss,
         bounds: loadedSite.config.region.bounds,
       })};`;
     },
@@ -126,7 +126,7 @@ self.addEventListener("activate", event => event.waitUntil((async () => {
       }
       fs.writeFileSync(path.join(DIST, "site.css"),
         sass.compile(path.join(ROOT, "src", "static-site.scss"), { style: "compressed" }).css);
-      fs.appendFileSync(path.join(DIST, "site.css"), `\n:root{--cms-accent:${loadedSite.theme.accent};--page:${loadedSite.theme.background};--ink:${loadedSite.theme.text};--leaf:${loadedSite.theme.accent};--gold:${loadedSite.theme.accent};${loadedSite.theme.fontFamily ? `font-family:${loadedSite.theme.fontFamily};` : ""}}`);
+      fs.appendFileSync(path.join(DIST, "site.css"), `\n:root{--cms-accent:${loadedSite.theme.accent};--page:${loadedSite.theme.background};--ink:${loadedSite.theme.text};--leaf:${loadedSite.theme.accent};--gold:${loadedSite.theme.accent};${loadedSite.theme.fontFamily ? `font-family:${loadedSite.theme.fontFamily};` : ""}}\n${loadedSite.themeCss}`);
       fs.copyFileSync(path.join(ROOT, "public", "site.js"), path.join(DIST, "site.js"));
       fs.writeFileSync(path.join(DIST, "manifest.webmanifest"), JSON.stringify(pwaManifest(loadedSite), null, 2));
 

@@ -15,11 +15,11 @@ npm ci
 npm run dev -- --site ./sites/demo-region
 ```
 
-Open `http://localhost:3000`. Without `--site`, development and build use the documented `sites/demo-region` default. Site paths must resolve inside this repository.
+Open `http://localhost:3000`. Without `--site`, development and build use the documented `sites/demo-region` default. Relative site paths resolve from the current working directory, so sibling and private package repositories can be selected too.
 
 ## Site packages
 
-Start a package by copying `sites/demo-region/` to `sites/my-region/`. A package is data, not executable code. Its `manifest.json` uses format `1` and points to the site config, map config, navigation, page composition, collections, Markdown content, place GeoJSON, regional trail snapshot, theme, and assets. All manifest paths are relative to the package root.
+Start a package by copying `sites/demo-region/` to `sites/my-region/`. Its `manifest.json` uses format `1` and points to the site config, map config, navigation, page composition, collections, Markdown content, place GeoJSON, regional trail snapshot, theme, optional `themeCss`, and assets. All manifest paths are relative to the package root. Optional explorer editorial copy lives in `site.json`.
 
 Validate a package before using it:
 
@@ -34,7 +34,7 @@ npm run dev -- --site ./sites/my-region
 npm run build -- --site ./sites/my-region
 ```
 
-Both `garrett-county` and `demo-region` are supported examples. Package paths, collection references, page component IDs, navigation URLs, GeoJSON places, theme values, and trail snapshots are checked before runtime data is exposed. Package files cannot add JavaScript, use traversal paths, or load files outside the package root.
+Both `garrett-county` and `demo-region` are supported examples. Package paths, collection references, page component IDs, navigation URLs, GeoJSON places, theme values, and trail snapshots are checked before runtime data is exposed. Manifest entries cannot use traversal paths or symlinks to load files outside the package root. Theme CSS imports and external resource URLs are rejected.
 
 ## Runtime architecture
 

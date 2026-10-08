@@ -18,6 +18,11 @@ export function validateManifestData(manifest) {
       throw new Error(`Package path '${key}' must be a non-empty safe relative path using forward slashes.`);
     }
   }
+  if (manifest.themeCss !== undefined && (typeof manifest.themeCss !== "string" || manifest.themeCss.trim() === "" ||
+      manifest.themeCss.includes("\\") || manifest.themeCss.startsWith("/") || /^[A-Za-z]:/.test(manifest.themeCss) ||
+      manifest.themeCss.split("/").includes(".."))) {
+    throw new Error("Package path 'themeCss' must be a safe relative path using forward slashes.");
+  }
   return manifest;
 }
 
@@ -55,6 +60,11 @@ export function validateSiteConfig(site) {
     typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) ||
       (site.theme.fontFamily !== undefined && (typeof site.theme.fontFamily !== "string" || !/^[\w\s,"'-]{1,120}$/.test(site.theme.fontFamily)))) {
     throw new Error("Theme configuration requires accent, background, and text values.");
+  }
+  if (site.explorer !== undefined && (!isRecord(site.explorer) ||
+      !["headerCaption", "mapCaption", "eyebrow", "heading", "description", "searchPlaceholder"].every((key) =>
+        site.explorer[key] === undefined || nonEmpty(site.explorer[key])))) {
+    throw new Error("Explorer editorial fields must be non-empty strings when provided.");
   }
   return site;
 }

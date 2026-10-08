@@ -23,7 +23,7 @@ export function resolvePackagePaths(manifest, packageRoot) {
   const root = path.resolve(packageRoot);
   const realRoot = fs.realpathSync(root);
   const paths = {};
-  for (const key of ["site", "map", "navigation", "collections", "pages", "content", "places", "trails", "theme", "assets"]) {
+  for (const key of ["site", "map", "navigation", "collections", "pages", "content", "places", "trails", "theme", "assets", ...(manifest.themeCss ? ["themeCss"] : [])]) {
     const candidate = path.resolve(root, ...manifest[key].split("/"));
     if (!pathInside(root, candidate)) throw new Error(`Package path '${key}' escapes the package root.`);
     if (!fs.existsSync(candidate)) throw new Error(`Missing package entry '${key}': ${manifest[key]}`);
@@ -129,5 +129,9 @@ export function loadSitePackage(packagePath) {
     });
   }
   validatePackageTree(paths.assets);
-  return { manifest, config: site, navigation, pages, collections, places, trails, content, map, theme, paths: { root, ...paths } };
+  const themeCss = paths.themeCss ? fs.readFileSync(paths.themeCss, "utf8") : "";
+  if (/@import\b|\burl\s*\(|\bexpression\s*\(/i.test(themeCss)) {
+    throw new Error("Site theme CSS cannot import styles or reference external resources.");
+  }
+  return { manifest, config: site, navigation, pages, collections, places, trails, content, map, theme, themeCss, paths: { root, ...paths } };
 }

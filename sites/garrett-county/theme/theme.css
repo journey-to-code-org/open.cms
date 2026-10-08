@@ -1,1 +1,10 @@
-:root { --cms-accent: #c4973b; --cms-background: #f3f1e8; --cms-text: #203a31; }
+:root { --cms-accent: #c4973b; --cms-background: #f3f1e8; --cms-text: #203a31; --surface: #fbf9f1; --surface-raised: #fffdf7; --surface-soft: #e8ebe0; --muted: #58685d; --line: #d2d9ce; --forest: #203a31; --leaf: #41694e; --gold: #c4973b; --gold-ink: #302a1f; --page: #f3f1e8; --ink: #203a31; --focus: #b85d13; font-family: 'DM Sans', system-ui, sans-serif; }
+.topbar { background: var(--forest); }
+.sidebar { background: var(--page); }
+.tabs button[aria-pressed='true'], .button.primary { border-color: var(--leaf); background: var(--leaf); }
+.home-hero { background: linear-gradient(125deg, #203a31, #41694e 70%, #c4973b); }
+.home-hero h1, .editorial-page h1, .section-heading h2 { font-family: 'Manrope', system-ui, sans-serif; letter-spacing: -.035em; }
+.guide-card { border-radius: .35rem; box-shadow: 0 8px 25px #152e2510; }
+.guide-card h3 a, .site-brand { color: var(--forest); }
+.site-header, .site-footer { background: var(--forest); color: #e0e9df; }
+.site-header a, .site-footer a { color: #fff; }

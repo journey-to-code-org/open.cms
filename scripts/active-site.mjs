@@ -18,9 +18,5 @@ export function activeSiteFromArgs(args = process.argv.slice(2)) {
   if (!requested && positional.length === 1) requested = positional[0];
   if (!requested && positional.length > 1) throw new Error("Choose one site package directory path.");
   if (!requested) requested = path.join(root, "sites", "demo-region");
-  const resolved = path.resolve(root, requested);
-  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
-    throw new Error("The site path must stay inside this repository.");
-  }
-  return resolved;
+  return path.resolve(process.cwd(), requested);
 }

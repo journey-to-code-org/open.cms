@@ -23,6 +23,20 @@ document.documentElement.style.setProperty("--ink", siteRuntime.theme.text);
 document.documentElement.style.setProperty("--leaf", siteRuntime.theme.accent);
 document.documentElement.style.setProperty("--gold", siteRuntime.theme.accent);
 configurePlaces(siteRuntime.places);
+const siteId = siteRuntime.config.id;
+const siteTheme = document.createElement("style");
+siteTheme.dataset.siteTheme = siteRuntime.config.id;
+siteTheme.textContent = siteRuntime.themeCss;
+document.head.append(siteTheme);
+const explorerCopy = {
+  headerCaption: "Explore the region",
+  mapCaption: "Explore places around you.",
+  eyebrow: "EXPLORE YOUR REGION",
+  heading: "Find a place to explore.",
+  description: "Browse places and activities across the region.",
+  searchPlaceholder: "Search places and activities",
+  ...siteRuntime.config.explorer,
+};
 
 function get<T extends HTMLElement>(id: string, type: { new(): T }): T {
   const element = document.getElementById(id);
@@ -55,7 +69,7 @@ get("app", HTMLElement).innerHTML = `
     <a class="brand" href="./">
       <span>${escapeHtml(siteRuntime.config.name)}<span class="brand-subtitle">${escapeHtml(siteRuntime.config.region.name)}</span></span>
     </a>
-    <span class="header-caption">Less scrolling. More exploring.</span>
+    <span class="header-caption">${escapeHtml(explorerCopy.headerCaption)}</span>
     <a class="header-link" href="./#trip-guides">Trip guides</a>
     <span id="connection" class="connection"></span>
   </header>
@@ -66,7 +80,7 @@ get("app", HTMLElement).innerHTML = `
         <span class="map-loading-spinner" aria-hidden="true"></span>
         <span>Loading map…</span>
       </div>
-      <div class="map-caption"><strong>Your next adventure starts here.</strong><span id="map-summary">${escapeHtml(siteRuntime.config.region.name)} and its surroundings.</span></div>
+      <div class="map-caption"><strong>${escapeHtml(explorerCopy.mapCaption)}</strong><span id="map-summary">${escapeHtml(siteRuntime.config.region.name)} and its surroundings.</span></div>
       <button id="reset-map" type="button" class="map-reset">Show all places</button>
       <button id="terrain-toggle" type="button" class="terrain-toggle" aria-pressed="true" disabled>Return to 2D</button>
       <p id="map-notice" class="map-notice" hidden></p>
@@ -88,11 +102,11 @@ get("app", HTMLElement).innerHTML = `
           <p>Steepness applies in 3D terrain mode only. Heights are visually exaggerated, not measured slopes.</p>
         </details>
         <section id="explore-panel">
-          <p class="eyebrow">THE GREAT OUTDOORS, CLOSE TO HOME</p>
-          <h2>Find your kind<br>of adventure.</h2>
-          <p class="intro">Waterfalls, quiet lakes, and mountain views. Pick a place and make a day of it.</p>
+          <p class="eyebrow">${escapeHtml(explorerCopy.eyebrow)}</p>
+          <h2>${escapeHtml(explorerCopy.heading)}</h2>
+          <p class="intro">${escapeHtml(explorerCopy.description)}</p>
           <label class="field-label" for="search">Search places and activities</label>
-          <input id="search" type="search" placeholder="Try waterfalls or camping" autocomplete="off">
+          <input id="search" type="search" placeholder="${escapeHtml(explorerCopy.searchPlaceholder)}" autocomplete="off">
           <label class="field-label" for="activity">What do you feel like doing?</label>
           <select id="activity"><option value="">All activities</option></select>
           <div class="results-heading"><p id="result-count" role="status"></p><button id="clear-filters" class="text-button" type="button">Reset filters</button></div>
@@ -321,7 +335,7 @@ function renderDetails(): void {
   const isSaved = saved.some((outing) => outing.id === `place:${place.id}`);
   controls.append(button(isSaved ? "Saved on this device" : "Save outing offline", () => {
     perform(async () => {
-      await writeOuting({
+      await writeOuting(siteId, {
         id: `place:${place.id}`, kind: "place", name: place.name,
         savedAt: new Date().toISOString(), place,
       });
@@ -376,7 +390,7 @@ get("clear-filters", HTMLButtonElement).onclick = () => {
 };
 
 async function refreshSaved(): Promise<void> {
-  saved = (await readOutings()).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+  saved = (await readOutings(siteId)).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
   get("saved-count", HTMLSpanElement).textContent = String(saved.length);
   const list = get("saved-list", HTMLUListElement);
   list.replaceChildren();
@@ -402,7 +416,7 @@ async function refreshSaved(): Promise<void> {
     }));
     actions.append(button("Remove", () => {
       perform(async () => {
-        await removeOuting(outing.id);
+        await removeOuting(siteId, outing.id);
         if (savedTrailId === outing.id) savedTrailId = undefined;
         await refreshSaved();
         notify("Saved outing removed.");
@@ -537,7 +551,7 @@ get("save-trail", HTMLButtonElement).onclick = () => {
   get("save-trail", HTMLButtonElement).disabled = true;
   perform(async () => {
     try {
-      await writeOuting({ id, kind: "trail", name: snapshot.name, savedAt: new Date().toISOString(), analysis: snapshot, source });
+      await writeOuting(siteId, { id, kind: "trail", name: snapshot.name, savedAt: new Date().toISOString(), analysis: snapshot, source });
       if (analysis === snapshot) savedTrailId = id;
       await refreshSaved();
       notify("Trail geometry and analysis saved for offline use.");
@@ -647,7 +661,7 @@ get("find-hikes", HTMLButtonElement).onclick = () => {
       renderHikes();
       updateMap();
       get("hikes-state", HTMLParagraphElement).textContent = `Fetched ${new Date(discovery.retrievedAt).toLocaleString()}. Saving a local copy...`;
-      await writeDiscovery(refreshed);
+      await writeDiscovery(siteId, refreshed);
       get("hikes-state", HTMLParagraphElement).textContent = `Cached on this device / retrieved ${new Date(discovery.retrievedAt).toLocaleString()}. Not live conditions.`;
     } catch (error) {
       if (controller.signal.aborted && controller.signal.reason instanceof DOMException && controller.signal.reason.name === "AbortError") {
@@ -699,7 +713,7 @@ Promise.resolve(siteRuntime.trails).then((snapshot) => {
   updateMap();
 }).catch(report);
 perform(async () => {
-  const cached = await readDiscovery();
+  const cached = await readDiscovery(siteId);
   cachedDiscovery = cached;
   // An explicit search may finish before IndexedDB opens; do not overwrite fresh results.
   if (cached && bundledDiscovery && !discoveryRequest) {
